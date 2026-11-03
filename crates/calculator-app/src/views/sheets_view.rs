@@ -224,7 +224,9 @@ $250 split between 4 people
 32 fahrenheit to celsius
 2 hours 30 minutes in seconds"#;
 
-        if let Ok(id) = state.borrow().db.create_sheet("Default Sheet", default_content) {
+        // Bound first: a borrow in the `if let` condition would last through the block.
+        let created = state.borrow().db.create_sheet("Default Sheet", default_content);
+        if let Ok(id) = created {
             let list = state.borrow().db.list_sheets().unwrap_or_default();
             populate_sheet_dropdown(state, list, Some(id));
             load_sheet_by_id(state, id);
@@ -279,7 +281,8 @@ fn load_sheet_by_id(state: &Rc<RefCell<SheetsState>>, id: i64) {
 }
 
 fn create_new_sheet(state: &Rc<RefCell<SheetsState>>, title: &str, content: &str) {
-    if let Ok(id) = state.borrow().db.create_sheet(title, content) {
+    let created = state.borrow().db.create_sheet(title, content);
+    if let Ok(id) = created {
         let list = state.borrow().db.list_sheets().unwrap_or_default();
         populate_sheet_dropdown(state, list, Some(id));
         load_sheet_by_id(state, id);
