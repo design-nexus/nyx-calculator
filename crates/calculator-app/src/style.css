@@ -273,10 +273,8 @@ window.calculator-window button.bit-btn:disabled {
     min-width: 280px;
 }
 
-/* The same height as the bar beside it, so the two read as one. */
 .calc-history-head {
     min-height: 46px;
-    background: @theme_panel;
     padding: 0 8px 0 14px;
 }
 

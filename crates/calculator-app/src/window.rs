@@ -120,11 +120,7 @@ fn build(app: &gtk::Application) {
     window.set_titlebar(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
     chrome::set_title(&window, "Calculator", "Standard");
 
-    let overlay = gtk::Overlay::new();
     let main_h_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-
-    let calc_v_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    calc_v_box.set_hexpand(true);
 
     // The one bar: the app's icon and the mode menu, then History and Settings. Built
     // like nyx_ui::chrome::app_header but without window controls: Calculator always
@@ -226,8 +222,6 @@ fn build(app: &gtk::Application) {
     bar_end.append(&hist_btn);
     bar_end.append(&chrome::settings_button(settings_dialog::open));
 
-    calc_v_box.append(&topbar);
-
     // Database
     let db = CalculatorDb::open_default().unwrap_or_else(|_| CalculatorDb::open_in_memory().unwrap());
 
@@ -271,8 +265,8 @@ fn build(app: &gtk::Application) {
     let graph_view = GraphView::new(toast);
     content_stack.add_named(&graph_view.root, Some("graph"));
 
-    calc_v_box.append(&content_stack);
-    main_h_box.append(&calc_v_box);
+    content_stack.set_hexpand(true);
+    main_h_box.append(&content_stack);
 
     // History sidebar
     let sidebar = HistorySidebar::new(
@@ -289,9 +283,14 @@ fn build(app: &gtk::Application) {
     sidebar_container.append(&sidebar.borrow().root);
     let initial_open = prefs::get().history_open;
     sidebar_container.set_visible(initial_open);
+    let line = nyx_ui::frame::pane_line(gtk::Orientation::Vertical);
+    sidebar_container.bind_property("visible", &line, "visible").sync_create().build();
+    main_h_box.append(&line);
     main_h_box.append(&sidebar_container);
 
-    overlay.set_child(Some(&main_h_box));
+    let frame = nyx_ui::frame::AppFrame::new(&topbar);
+    frame.set_page(&main_h_box);
+    let overlay = frame.install(&window);
 
     // Toast overlay label
     let toast_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -304,8 +303,6 @@ fn build(app: &gtk::Application) {
     toast_lbl.add_css_class("calc-toast");
     toast_box.append(&toast_lbl);
     overlay.add_overlay(&toast_box);
-
-    window.set_child(Some(&overlay));
 
     // Common keys
     nyx_ui::keys::install(
@@ -361,15 +358,20 @@ fn build(app: &gtk::Application) {
     }
 }
 
+/// The frame's room around the page (`.app-page` in nyx-theme's base2.css: 8 px clear
+/// of the window's sides and foot, a 1 px line, 8 px inside).
+const FRAME_ROOM: (i32, i32) = (34, 26);
+
 pub fn mode_dimensions(mode: &str) -> (i32, i32) {
-    match mode {
+    let (w, h) = match mode {
         "scientific" => (500, 580),
         "programmer" => (580, 660),
         "converter" => (420, 450),
         "sheets" => (680, 580),
         "graph" => (780, 600),
         _ => (360, 540),
-    }
+    };
+    (w + FRAME_ROOM.0, h + FRAME_ROOM.1)
 }
 
 pub fn switch_mode(mode: &str) {
