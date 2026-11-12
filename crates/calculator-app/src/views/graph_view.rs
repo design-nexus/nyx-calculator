@@ -401,8 +401,18 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
         )
     };
 
+    // The theme's colours: the page's background, its text for the grid, axes and
+    // labels, and its surface for the coordinate badge.
+    let p = nyx_theme::palette();
+    let rgb = |c: &str| {
+        gtk::gdk::RGBA::parse(c).map_or((0.5, 0.5, 0.5), |c| (f64::from(c.red()), f64::from(c.green()), f64::from(c.blue())))
+    };
+    let (bg_r, bg_g, bg_b) = rgb(&p.bg);
+    let (tx_r, tx_g, tx_b) = rgb(&p.text);
+    let (sf_r, sf_g, sf_b) = rgb(&p.surface);
+
     // 1. Clear Background
-    cr.set_source_rgb(0.09, 0.09, 0.13); // Deep dark background
+    cr.set_source_rgb(bg_r, bg_g, bg_b);
     let _ = cr.paint();
 
     // 2. Draw Dynamic Grid Lines
@@ -410,7 +420,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
 
     // Minor/Secondary grid lines
     cr.set_line_width(0.6);
-    cr.set_source_rgba(1.0, 1.0, 1.0, 0.06);
+    cr.set_source_rgba(tx_r, tx_g, tx_b, 0.06);
 
     let start_x = (vp.x_min / (step_x / 2.0)).floor() as i64;
     let end_x = (vp.x_max / (step_x / 2.0)).ceil() as i64;
@@ -433,7 +443,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
 
     // Major grid lines & Axis Labels
     cr.set_line_width(0.9);
-    cr.set_source_rgba(1.0, 1.0, 1.0, 0.14);
+    cr.set_source_rgba(tx_r, tx_g, tx_b, 0.14);
 
     let major_start_x = (vp.x_min / step_x).floor() as i64;
     let major_end_x = (vp.x_max / step_x).ceil() as i64;
@@ -457,7 +467,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
     // 3. Coordinate Axes (X and Y crosshair)
     let (origin_x, origin_y) = vp.world_to_screen(0.0, 0.0, width, height);
     cr.set_line_width(1.6);
-    cr.set_source_rgba(1.0, 1.0, 1.0, 0.45);
+    cr.set_source_rgba(tx_r, tx_g, tx_b, 0.45);
 
     // X axis
     if (0.0..=height).contains(&origin_y) {
@@ -472,7 +482,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
     let _ = cr.stroke();
 
     // Labels on axes
-    cr.set_source_rgba(1.0, 1.0, 1.0, 0.6);
+    cr.set_source_rgba(tx_r, tx_g, tx_b, 0.6);
     cr.set_font_size(10.0);
     for i in major_start_x..=major_end_x {
         if i == 0 {
@@ -582,7 +592,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
                 let _ = cr.fill();
 
                 // Small root label
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.9);
+                cr.set_source_rgba(tx_r, tx_g, tx_b, 0.9);
                 cr.set_font_size(9.0);
                 cr.move_to(sx - 10.0, sy - 7.0);
                 let _ = cr.show_text(&format!("{root_x:.2}"));
@@ -604,7 +614,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
                 cr.arc(sx, sy, 4.5, 0.0, std::f64::consts::TAU);
                 let _ = cr.fill();
 
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.9);
+                cr.set_source_rgba(tx_r, tx_g, tx_b, 0.9);
                 cr.set_font_size(9.0);
                 cr.move_to(sx - 12.0, sy - 7.0);
                 let _ = cr.show_text(&format!("({ex_x:.2}, {ex_y:.2})"));
@@ -636,7 +646,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
 
         if let Some((sx, sy, wx, wy, col)) = closest_point {
             // Dotted crosshairs to axes
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.35);
+            cr.set_source_rgba(tx_r, tx_g, tx_b, 0.35);
             cr.set_line_width(1.0);
             cr.set_dash(&[4.0, 3.0], 0.0);
             cr.move_to(sx, 0.0);
@@ -656,7 +666,7 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
             cr.arc(sx, sy, 4.5, 0.0, std::f64::consts::TAU);
             let _ = cr.fill();
 
-            cr.set_source_rgb(1.0, 1.0, 1.0);
+            cr.set_source_rgb(bg_r, bg_g, bg_b);
             cr.arc(sx, sy, 2.0, 0.0, std::f64::consts::TAU);
             let _ = cr.fill();
 
@@ -665,16 +675,16 @@ fn draw_graph(state: &Rc<RefCell<GraphState>>, cr: &cairo::Context, width: f64, 
             let badge_x = (sx + 12.0).min(width - 110.0);
             let badge_y = (sy - 12.0).max(24.0);
 
-            cr.set_source_rgba(0.12, 0.12, 0.18, 0.92);
+            cr.set_source_rgba(sf_r, sf_g, sf_b, 0.92);
             draw_rounded_rect(cr, badge_x - 6.0, badge_y - 14.0, 100.0, 22.0, 6.0);
             let _ = cr.fill();
 
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.25);
+            cr.set_source_rgba(tx_r, tx_g, tx_b, 0.25);
             cr.set_line_width(1.0);
             draw_rounded_rect(cr, badge_x - 6.0, badge_y - 14.0, 100.0, 22.0, 6.0);
             let _ = cr.stroke();
 
-            cr.set_source_rgb(1.0, 1.0, 1.0);
+            cr.set_source_rgb(tx_r, tx_g, tx_b);
             cr.set_font_size(10.5);
             cr.move_to(badge_x, badge_y + 1.0);
             let _ = cr.show_text(&badge_text);
