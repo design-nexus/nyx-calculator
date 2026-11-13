@@ -1,126 +1,80 @@
-use super::{KeyAction, make_btn, make_mem_btn};
-use calculator_core::scientific::{AngleMode, SciFunc};
+use super::{KeyAction, backspace_btn, grid, make_btn};
+use calculator_core::scientific::SciFunc;
 use gtk::prelude::*;
 use std::rc::Rc;
 
 pub struct ScientificKeypad {
-    pub root: gtk::Box,
-    pub deg_rad_btn: gtk::Button,
-    pub mem_clear_btn: gtk::Button,
-    pub mem_recall_btn: gtk::Button,
+    pub root: gtk::Grid,
 }
 
 impl ScientificKeypad {
     pub fn new(on_action: impl Fn(KeyAction) + 'static) -> Self {
-        let on_action = Rc::new(on_action);
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
-
-        // Top bar: DEG/RAD toggle + Memory buttons
-        let topbar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        topbar.add_css_class("calc-membar");
-        topbar.set_homogeneous(true);
-
-        let deg_rad = gtk::Button::with_label("DEG");
-        deg_rad.add_css_class("mem-btn");
-        deg_rad.add_css_class("angle-btn");
-        deg_rad.set_tooltip_text(Some("Toggle angle mode (Degrees / Radians)"));
-        deg_rad.set_focusable(false);
-        let cb_deg = on_action.clone();
-        deg_rad.connect_clicked(move |_| cb_deg(KeyAction::ToggleAngleMode));
-        topbar.append(&deg_rad);
-
-        let mc = make_mem_btn("MC", "Clear memory", KeyAction::MemClear, on_action.clone());
-        let mr = make_mem_btn("MR", "Recall memory", KeyAction::MemRecall, on_action.clone());
-        let m_plus = make_mem_btn("M+", "Add to memory", KeyAction::MemAdd, on_action.clone());
-        let m_minus = make_mem_btn("M−", "Subtract from memory", KeyAction::MemSub, on_action.clone());
-        let ms = make_mem_btn("MS", "Store in memory", KeyAction::MemStore, on_action.clone());
-
-        topbar.append(&mc);
-        topbar.append(&mr);
-        topbar.append(&m_plus);
-        topbar.append(&m_minus);
-        topbar.append(&ms);
-        root.append(&topbar);
-
-        // 6-column Grid for Scientific Functions + Standard Keypad
-        let grid = gtk::Grid::builder().column_spacing(6).row_spacing(6).column_homogeneous(true).row_homogeneous(true).build();
-        grid.add_css_class("calc-keypad");
+        let on_action: Rc<dyn Fn(KeyAction)> = Rc::new(on_action);
+        let root = grid(5);
+        root.add_css_class("calc-keypad-sci");
+        let at = |label: &str, class: &str, action: KeyAction, c: i32, r: i32| {
+            root.attach(&make_btn(label, class, action, on_action.clone()), c, r, 1, 1);
+        };
+        let fun = "calc-btn-fn";
+        let dig = "calc-btn-digit";
+        let op = "calc-btn-op";
 
         // Row 0: sin, cos, tan, π, C, ⌫
-        grid.attach(&make_btn("sin", "calc-btn-fn", KeyAction::Sci(SciFunc::Sin), on_action.clone()), 0, 0, 1, 1);
-        grid.attach(&make_btn("cos", "calc-btn-fn", KeyAction::Sci(SciFunc::Cos), on_action.clone()), 1, 0, 1, 1);
-        grid.attach(&make_btn("tan", "calc-btn-fn", KeyAction::Sci(SciFunc::Tan), on_action.clone()), 2, 0, 1, 1);
-        grid.attach(&make_btn("π", "calc-btn-fn", KeyAction::ConstPi, on_action.clone()), 3, 0, 1, 1);
-        grid.attach(&make_btn("C", "calc-btn-clear", KeyAction::Clear, on_action.clone()), 4, 0, 1, 1);
-        grid.attach(&make_btn("⌫", "calc-btn-clear", KeyAction::Backspace, on_action.clone()), 5, 0, 1, 1);
+        at("sin", fun, KeyAction::Sci(SciFunc::Sin), 0, 0);
+        at("cos", fun, KeyAction::Sci(SciFunc::Cos), 1, 0);
+        at("tan", fun, KeyAction::Sci(SciFunc::Tan), 2, 0);
+        at("π", fun, KeyAction::ConstPi, 3, 0);
+        at("C", fun, KeyAction::Clear, 4, 0);
+        root.attach(&backspace_btn(on_action.clone()), 5, 0, 1, 1);
 
         // Row 1: asin, acos, atan, e, (, )
-        grid.attach(&make_btn("asin", "calc-btn-fn", KeyAction::Sci(SciFunc::Asin), on_action.clone()), 0, 1, 1, 1);
-        grid.attach(&make_btn("acos", "calc-btn-fn", KeyAction::Sci(SciFunc::Acos), on_action.clone()), 1, 1, 1, 1);
-        grid.attach(&make_btn("atan", "calc-btn-fn", KeyAction::Sci(SciFunc::Atan), on_action.clone()), 2, 1, 1, 1);
-        grid.attach(&make_btn("e", "calc-btn-fn", KeyAction::ConstE, on_action.clone()), 3, 1, 1, 1);
-        grid.attach(&make_btn("(", "calc-btn-fn", KeyAction::LParen, on_action.clone()), 4, 1, 1, 1);
-        grid.attach(&make_btn(")", "calc-btn-fn", KeyAction::RParen, on_action.clone()), 5, 1, 1, 1);
+        at("asin", fun, KeyAction::Sci(SciFunc::Asin), 0, 1);
+        at("acos", fun, KeyAction::Sci(SciFunc::Acos), 1, 1);
+        at("atan", fun, KeyAction::Sci(SciFunc::Atan), 2, 1);
+        at("e", fun, KeyAction::ConstE, 3, 1);
+        at("(", fun, KeyAction::LParen, 4, 1);
+        at(")", fun, KeyAction::RParen, 5, 1);
 
         // Row 2: sinh, cosh, tanh, τ, xʸ, ÷
-        grid.attach(&make_btn("sinh", "calc-btn-fn", KeyAction::Sci(SciFunc::Sinh), on_action.clone()), 0, 2, 1, 1);
-        grid.attach(&make_btn("cosh", "calc-btn-fn", KeyAction::Sci(SciFunc::Cosh), on_action.clone()), 1, 2, 1, 1);
-        grid.attach(&make_btn("tanh", "calc-btn-fn", KeyAction::Sci(SciFunc::Tanh), on_action.clone()), 2, 2, 1, 1);
-        grid.attach(&make_btn("τ", "calc-btn-fn", KeyAction::ConstTau, on_action.clone()), 3, 2, 1, 1);
-        grid.attach(&make_btn("xʸ", "calc-btn-fn", KeyAction::OpPow, on_action.clone()), 4, 2, 1, 1);
-        grid.attach(&make_btn("÷", "calc-btn-op", KeyAction::OpDiv, on_action.clone()), 5, 2, 1, 1);
+        at("sinh", fun, KeyAction::Sci(SciFunc::Sinh), 0, 2);
+        at("cosh", fun, KeyAction::Sci(SciFunc::Cosh), 1, 2);
+        at("tanh", fun, KeyAction::Sci(SciFunc::Tanh), 2, 2);
+        at("τ", fun, KeyAction::ConstTau, 3, 2);
+        at("xʸ", fun, KeyAction::OpPow, 4, 2);
+        at("÷", op, KeyAction::OpDiv, 5, 2);
 
         // Row 3: ln, log, 7, 8, 9, ×
-        grid.attach(&make_btn("ln", "calc-btn-fn", KeyAction::Sci(SciFunc::Ln), on_action.clone()), 0, 3, 1, 1);
-        grid.attach(&make_btn("log", "calc-btn-fn", KeyAction::Sci(SciFunc::Log10), on_action.clone()), 1, 3, 1, 1);
-        grid.attach(&make_btn("7", "calc-btn-digit", KeyAction::Digit('7'), on_action.clone()), 2, 3, 1, 1);
-        grid.attach(&make_btn("8", "calc-btn-digit", KeyAction::Digit('8'), on_action.clone()), 3, 3, 1, 1);
-        grid.attach(&make_btn("9", "calc-btn-digit", KeyAction::Digit('9'), on_action.clone()), 4, 3, 1, 1);
-        grid.attach(&make_btn("×", "calc-btn-op", KeyAction::OpMul, on_action.clone()), 5, 3, 1, 1);
+        at("ln", fun, KeyAction::Sci(SciFunc::Ln), 0, 3);
+        at("log", fun, KeyAction::Sci(SciFunc::Log10), 1, 3);
+        at("7", dig, KeyAction::Digit('7'), 2, 3);
+        at("8", dig, KeyAction::Digit('8'), 3, 3);
+        at("9", dig, KeyAction::Digit('9'), 4, 3);
+        at("×", op, KeyAction::OpMul, 5, 3);
 
-        // Row 4: √x, ³√x, 4, 5, 6, −
-        grid.attach(&make_btn("√x", "calc-btn-fn", KeyAction::Sqrt, on_action.clone()), 0, 4, 1, 1);
-        grid.attach(&make_btn("³√x", "calc-btn-fn", KeyAction::Sci(SciFunc::Cbrt), on_action.clone()), 1, 4, 1, 1);
-        grid.attach(&make_btn("4", "calc-btn-digit", KeyAction::Digit('4'), on_action.clone()), 2, 4, 1, 1);
-        grid.attach(&make_btn("5", "calc-btn-digit", KeyAction::Digit('5'), on_action.clone()), 3, 4, 1, 1);
-        grid.attach(&make_btn("6", "calc-btn-digit", KeyAction::Digit('6'), on_action.clone()), 4, 4, 1, 1);
-        grid.attach(&make_btn("−", "calc-btn-op", KeyAction::OpSub, on_action.clone()), 5, 4, 1, 1);
+        // Row 4: √x, ∛x, 4, 5, 6, −
+        at("√x", fun, KeyAction::Sqrt, 0, 4);
+        at("∛x", fun, KeyAction::Sci(SciFunc::Cbrt), 1, 4);
+        at("4", dig, KeyAction::Digit('4'), 2, 4);
+        at("5", dig, KeyAction::Digit('5'), 3, 4);
+        at("6", dig, KeyAction::Digit('6'), 4, 4);
+        at("−", op, KeyAction::OpSub, 5, 4);
 
         // Row 5: n!, 1/x, 1, 2, 3, +
-        grid.attach(&make_btn("n!", "calc-btn-fn", KeyAction::Sci(SciFunc::Fact), on_action.clone()), 0, 5, 1, 1);
-        grid.attach(&make_btn("1/x", "calc-btn-fn", KeyAction::Reciprocal, on_action.clone()), 1, 5, 1, 1);
-        grid.attach(&make_btn("1", "calc-btn-digit", KeyAction::Digit('1'), on_action.clone()), 2, 5, 1, 1);
-        grid.attach(&make_btn("2", "calc-btn-digit", KeyAction::Digit('2'), on_action.clone()), 3, 5, 1, 1);
-        grid.attach(&make_btn("3", "calc-btn-digit", KeyAction::Digit('3'), on_action.clone()), 4, 5, 1, 1);
-        grid.attach(&make_btn("+", "calc-btn-op", KeyAction::OpAdd, on_action.clone()), 5, 5, 1, 1);
+        at("n!", fun, KeyAction::Sci(SciFunc::Fact), 0, 5);
+        at("1/x", fun, KeyAction::Reciprocal, 1, 5);
+        at("1", dig, KeyAction::Digit('1'), 2, 5);
+        at("2", dig, KeyAction::Digit('2'), 3, 5);
+        at("3", dig, KeyAction::Digit('3'), 4, 5);
+        at("+", op, KeyAction::OpAdd, 5, 5);
 
         // Row 6: abs, EXP, ±, 0, ., =
-        grid.attach(&make_btn("abs", "calc-btn-fn", KeyAction::Sci(SciFunc::Abs), on_action.clone()), 0, 6, 1, 1);
-        grid.attach(&make_btn("EXP", "calc-btn-fn", KeyAction::ExpNotation, on_action.clone()), 1, 6, 1, 1);
-        grid.attach(&make_btn("±", "calc-btn-digit", KeyAction::Negate, on_action.clone()), 2, 6, 1, 1);
-        grid.attach(&make_btn("0", "calc-btn-digit", KeyAction::Digit('0'), on_action.clone()), 3, 6, 1, 1);
-        grid.attach(&make_btn(".", "calc-btn-digit", KeyAction::Dot, on_action.clone()), 4, 6, 1, 1);
-        grid.attach(&make_btn("=", "calc-btn-equals", KeyAction::Equals, on_action), 5, 6, 1, 1);
+        at("abs", fun, KeyAction::Sci(SciFunc::Abs), 0, 6);
+        at("EXP", fun, KeyAction::ExpNotation, 1, 6);
+        at("±", dig, KeyAction::Negate, 2, 6);
+        at("0", dig, KeyAction::Digit('0'), 3, 6);
+        at(".", dig, KeyAction::Dot, 4, 6);
+        at("=", "calc-btn-equals", KeyAction::Equals, 5, 6);
 
-        root.append(&grid);
-
-        Self { root, deg_rad_btn: deg_rad, mem_clear_btn: mc, mem_recall_btn: mr }
-    }
-
-    pub fn set_angle_mode(&self, mode: AngleMode) {
-        match mode {
-            AngleMode::Degrees => self.deg_rad_btn.set_label("DEG"),
-            AngleMode::Radians => self.deg_rad_btn.set_label("RAD"),
-        }
-    }
-
-    pub fn set_memory_enabled(&self, enabled: bool) {
-        self.mem_clear_btn.set_sensitive(enabled);
-        self.mem_recall_btn.set_sensitive(enabled);
-        if enabled {
-            self.mem_recall_btn.add_css_class("active");
-        } else {
-            self.mem_recall_btn.remove_css_class("active");
-        }
+        Self { root }
     }
 }

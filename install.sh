@@ -25,7 +25,7 @@ if command -v update-desktop-database >/dev/null; then update-desktop-database "
 
 # Hyprland: ensure Calculator opens as a floating window
 hypr="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
-if [[ -d $hypr && -f $hypr/nyx.lua ]]; then
+if [[ ${NYX_SKIP_INTEGRATION:-0} != 1 && -d $hypr && -f $hypr/nyx.lua ]]; then
   if ! grep -qF 'nyx\\.Calculator' "$hypr/nyx.lua"; then
     printf 'o.window("^io\\\\.github\\\\.design_nexus\\\\.nyx\\\\.Calculator$", { float = true, center = true })\n' >> "$hypr/nyx.lua"
     if command -v hyprctl >/dev/null 2>&1; then

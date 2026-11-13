@@ -220,6 +220,10 @@ pub fn install_calculator_keys(
                 on_action(KeyAction::Backspace);
                 glib::Propagation::Stop
             }
+            gdk::Key::Escape if crate::tools::open_tool().is_some() => {
+                crate::tools::close();
+                glib::Propagation::Stop
+            }
             gdk::Key::Escape | gdk::Key::Delete => {
                 on_action(KeyAction::Clear);
                 glib::Propagation::Stop

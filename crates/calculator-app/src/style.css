@@ -1,7 +1,8 @@
-/* Calculator on Nyx 2.0: only Calculator's own parts. One blended surface: spacing and
-   soft fills separate the bar, display, rows and keys, never lines. Every mode keeps
-   12 px at its sides. Key rules are scoped to window.calculator-window button so they
-   win over the shared button rule. */
+/* Calculator on Nyx 2.0: only Calculator's own parts. The calculator is a floating
+   window sized by its keypad; its keys sit in the frame's inset sheet. The tools
+   (Unit converter, Sheets, Graph) open in a panel beside it with the same frame
+   (window.calc-panel). Key rules are scoped to window.calculator-window button so
+   they win over the shared button rule. */
 
 /* Hidden scrollbars throughout */
 scrollbar, scrollbar trough, scrollbar slider {
@@ -14,68 +15,89 @@ scrollbar, scrollbar trough, scrollbar slider {
 
 /* ---------- The bar ---------- */
 
-/* The mode menu: plain text after the app's icon. */
-window.calculator-window .app-header button.mode-selector {
-    min-height: 32px;
-    padding: 0 8px;
-    background: transparent;
+/* The mode menu: a field-like button with its chevron, after the app's icon. */
+window.calculator-window .app-header button.calc-mode {
+    min-height: 28px;
+    padding: 0 8px 0 10px;
+    border-radius: var(--nyx-radius-small);
+    background: @field;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.07);
     color: @theme_text;
     font-weight: 600;
 }
 
-window.calculator-window .app-header button.mode-selector:hover {
+window.calculator-window .app-header button.calc-mode:hover {
     background: @row_hover;
 }
 
-/* History while its panel is open. */
-window.calculator-window .app-header button.toggled {
-    background: alpha(@theme_accent, 0.14);
+window.calculator-window .app-header button.calc-mode.open {
+    background: @nav_active;
+    box-shadow: inset 0 0 0 1px alpha(@theme_accent, 0.35);
+}
+
+.calc-mode-chevron {
+    -gtk-icon-size: 12px;
+    color: @theme_dim_text;
+}
+
+window.calculator-window popover.calc-mode-menu button.menu-item.checked .menu-icon {
     color: @theme_accent;
 }
 
-/* ---------- Display ---------- */
+/* A tool panel's name reads as a title, not the app's name. */
+window.calc-panel .app-header .app-title {
+    color: @theme_text;
+}
+
+window.calc-panel .app-header .app-icon {
+    margin-right: 8px;
+}
+
+/* The open tool, and History while its panel is open. */
+window.calculator-window .app-header button.toggled {
+    background: @nav_active;
+    color: @theme_accent;
+}
+
+/* Labelled buttons that read as text until hovered (Clear, Copy all, Copy image). */
+window.calculator-window button.calc-ghost {
+    padding: 0 10px;
+    color: @theme_dim_text;
+    font-weight: 500;
+}
+
+window.calculator-window button.calc-ghost:hover {
+    color: @theme_text;
+}
+
+/* ---------- The calculator ---------- */
+
+.calc-view {
+    padding: 12px;
+}
 
 .calc-display {
-    padding: 6px 20px 10px;
+    padding: 0 6px 6px;
 }
 
-.calc-tape {
-    font-size: 0.92em;
-    color: @theme_dim_text;
-    font-feature-settings: "tnum" 1;
-    min-height: 20px;
-}
-
+.calc-tape,
 .calc-preview {
-    font-size: 1.05em;
+    font-size: 1.154em;
     color: @theme_dim_text;
     font-feature-settings: "tnum" 1;
 }
 
 .calc-readout {
-    font-size: 2.4em;
-    font-weight: 600;
+    font-family: "Inter Display", "Inter", sans-serif;
+    font-size: 2.8em;
+    font-weight: 500;
+    letter-spacing: -0.03em;
     color: @theme_text;
     font-feature-settings: "tnum" 1;
-    letter-spacing: -0.5px;
-    min-height: 52px;
 }
 
-.calc-readout-small {
-    font-size: 1.6em;
-    font-weight: 600;
-    color: @theme_text;
-    font-feature-settings: "tnum" 1;
-    min-height: 52px;
-}
-
-.calc-badge {
-    font-size: 0.72em;
-    font-weight: 600;
-    border-radius: 4px;
-    background: alpha(@theme_accent, 0.14);
-    color: @theme_accent;
-    padding: 2px 6px;
+.calc-readout.long {
+    font-size: 2em;
 }
 
 .calc-error-badge {
@@ -87,104 +109,111 @@ window.calculator-window .app-header button.toggled {
     padding: 4px 8px;
 }
 
-/* ---------- Memory row, angle and word-size switches ---------- */
+/* ---------- Memory row ---------- */
 
-.calc-membar {
-    padding: 0 12px 4px;
-}
-
-.calc-ctrl-row {
-    padding: 4px 12px;
-}
-
-window.calculator-window button.mem-btn {
+.calc-mem {
     min-height: 30px;
-    padding: 0 8px;
-    font-size: 0.82em;
+    padding: 0 2px;
+}
+
+.calc-mem-tag {
+    min-height: 24px;
+    padding: 0 9px;
+    margin-right: 4px;
+    border-radius: 6px;
+    background: alpha(@theme_accent, 0.13);
+    color: @theme_accent;
+    font-size: 0.923em;
     font-weight: 600;
-    background: transparent;
-    color: @theme_dim_text;
+}
+
+.calc-mem-value {
+    color: @theme_text;
     font-feature-settings: "tnum" 1;
 }
 
-window.calculator-window button.mem-btn:hover {
+.calc-mem-empty {
+    color: @theme_text_tertiary;
+    font-size: 0.923em;
+}
+
+window.calculator-window button.calc-mem-btn {
+    min-height: 28px;
+    padding: 0 7px;
+    background: transparent;
+    color: @theme_dim_text;
+    font-weight: 600;
+    font-feature-settings: "tnum" 1;
+}
+
+window.calculator-window button.calc-mem-btn:hover {
     background: @row_hover;
     color: @theme_text;
 }
 
-window.calculator-window button.mem-btn.active,
-window.calculator-window button.angle-btn {
-    color: @theme_accent;
-}
-
-window.calculator-window button.mem-btn:disabled {
-    opacity: 0.35;
+/* Scientific's Deg/Rad switch. */
+window.calculator-window .calc-angle button.segment {
+    min-height: 26px;
+    padding: 0 10px;
+    font-size: 0.923em;
+    font-weight: 600;
 }
 
 /* ---------- Keys ---------- */
 
-.calc-keypad {
-    padding: 4px 12px 12px;
-}
-
 window.calculator-window button.calc-btn {
-    min-height: 48px;
+    min-height: 50px;
     padding: 0;
-    border-radius: 8px;
-    font-size: 1.15em;
-    font-weight: 500;
+    border-radius: 10px;
     background: @theme_card;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06), 0 1px 1.5px alpha(@theme_shadow, 0.12);
     color: @theme_text;
+    font-size: 1.385em;
+    font-weight: 500;
     font-feature-settings: "tnum" 1;
 }
 
 window.calculator-window button.calc-btn:hover {
-    background: mix(@theme_card, @theme_text, 0.08);
+    background: mix(@theme_card, @theme_text, 0.06);
 }
 
 window.calculator-window button.calc-btn:active {
-    background: mix(@theme_card, @theme_text, 0.14);
+    background: mix(@theme_card, @theme_text, 0.12);
 }
 
 window.calculator-window button.calc-btn:disabled {
     opacity: 0.35;
 }
 
-/* Digits a touch brighter than the function keys around them. */
-window.calculator-window button.calc-btn-digit {
-    background: mix(@theme_card, @theme_text, 0.05);
-    font-size: 1.25em;
-}
-
-window.calculator-window button.calc-btn-digit:hover {
-    background: mix(@theme_card, @theme_text, 0.11);
-}
-
 window.calculator-window button.calc-btn-fn {
+    background: mix(@theme_bg, @theme_text, 0.05);
     color: @theme_dim_text;
-    font-size: 1em;
+    font-size: 1.077em;
 }
 
 window.calculator-window button.calc-btn-fn:hover {
+    background: mix(@theme_bg, @theme_text, 0.1);
     color: @theme_text;
 }
 
-window.calculator-window button.calc-btn-op {
-    color: @theme_accent;
-    font-weight: 600;
-    font-size: 1.3em;
+window.calculator-window button.calc-btn-bs image {
+    -gtk-icon-size: 20px;
 }
 
-window.calculator-window button.calc-btn-clear {
-    color: @theme_danger;
+window.calculator-window button.calc-btn-op {
+    background: mix(@theme_card, @theme_accent, 0.14);
+    color: @theme_accent;
+}
+
+window.calculator-window button.calc-btn-op:hover {
+    background: mix(@theme_card, @theme_accent, 0.22);
 }
 
 /* = is the one solid accent key. */
 window.calculator-window button.calc-btn-equals {
     background: @theme_accent;
+    box-shadow: none;
     color: @theme_on_accent;
-    font-weight: 700;
-    font-size: 1.3em;
 }
 
 window.calculator-window button.calc-btn-equals:hover {
@@ -195,23 +224,38 @@ window.calculator-window button.calc-btn-equals:active {
     background: mix(@theme_accent, @theme_bg, 0.2);
 }
 
-/* Programmer: smaller keys so the radix rows, bits and keypad fit. */
-window.calculator-window .calc-keypad-prog button.calc-btn {
-    min-height: 36px;
-    font-size: 0.95em;
+/* Scientific: seven rows of six in the same window. */
+window.calculator-window .calc-keypad-sci button.calc-btn {
+    min-height: 42px;
+    border-radius: 9px;
+    font-size: 1.15em;
 }
 
-window.calculator-window .calc-keypad-prog button.calc-btn-op,
-window.calculator-window .calc-keypad-prog button.calc-btn-equals {
+window.calculator-window .calc-keypad-sci button.calc-btn-fn {
+    font-size: 0.92em;
+}
+
+/* Programmer: six rows of keys under the bases and bits. */
+window.calculator-window .calc-keypad-prog button.calc-btn {
+    min-height: 34px;
+    border-radius: 9px;
     font-size: 1.1em;
 }
 
-/* ---------- Programmer: radix rows and bits ---------- */
+window.calculator-window .calc-keypad-prog button.calc-btn-fn {
+    font-size: 0.85em;
+}
+
+/* ---------- Programmer: bases, pickers and bits ---------- */
+
+.calc-radix-box {
+    margin-top: 2px;
+}
 
 .calc-radix-row {
     min-height: 26px;
-    padding: 2px 10px;
-    border-radius: 6px;
+    padding: 0 10px;
+    border-radius: var(--nyx-radius-small);
     transition: background 120ms ease-out;
 }
 
@@ -219,38 +263,82 @@ window.calculator-window .calc-keypad-prog button.calc-btn-equals {
     background: @row_hover;
 }
 
-.calc-radix-row.active-radix {
-    background: @nav_active;
-    box-shadow: inset 2px 0 @theme_accent;
-}
-
 .calc-radix-tag {
-    font-size: 0.76em;
+    min-width: 44px;
+    font-size: 0.846em;
     font-weight: 700;
-    color: @theme_dim_text;
-    min-width: 36px;
+    letter-spacing: 0.04em;
+    color: @theme_text_tertiary;
 }
 
 .calc-radix-val {
-    font-size: 0.88em;
+    font-family: "JetBrains Mono", monospace;
     font-feature-settings: "tnum" 1;
+    color: @theme_dim_text;
+}
+
+/* The base the keys type in: its value large. */
+.calc-radix-row.active-radix {
+    min-height: 40px;
+    background: alpha(@theme_accent, 0.1);
+    box-shadow: inset 2px 0 @theme_accent;
+}
+
+.calc-radix-row.active-radix .calc-radix-tag {
+    color: @theme_accent;
+}
+
+.calc-radix-row.active-radix .calc-radix-val {
+    font-family: "Inter Display", "Inter", sans-serif;
+    font-size: 2em;
+    font-weight: 500;
+    letter-spacing: -0.02em;
     color: @theme_text;
 }
 
+.calc-ctrl-row {
+    min-height: 32px;
+    padding: 0 2px;
+}
+
+/* A dropdown-looking picker (word size, signedness, the sheet). */
+window.calculator-window button.calc-picker {
+    min-height: 28px;
+    padding: 0 8px 0 10px;
+    border-radius: var(--nyx-radius-small);
+    background: @field;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.07);
+    color: @theme_text;
+    font-weight: 500;
+}
+
+window.calculator-window button.calc-picker:hover {
+    background: @row_hover;
+}
+
+.calc-bit-hint {
+    color: @theme_text_tertiary;
+    font-size: 0.923em;
+}
+
 .calc-bit-grid {
-    margin: 2px 12px 4px;
+    padding: 6px 8px 8px;
+    border-radius: var(--nyx-radius-card);
+    background: @theme_card;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
 }
 
 window.calculator-window button.bit-btn {
     min-width: 0;
-    min-height: 22px;
+    min-height: 18px;
     padding: 0;
-    font-size: 0.74em;
-    font-weight: 600;
     border-radius: 4px;
     background: transparent;
-    color: @theme_dim_text;
-    font-feature-settings: "tnum" 1;
+    box-shadow: none;
+    color: @theme_text_tertiary;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.923em;
+    font-weight: 500;
 }
 
 window.calculator-window button.bit-btn:hover {
@@ -264,74 +352,100 @@ window.calculator-window button.bit-btn.active {
 }
 
 window.calculator-window button.bit-btn:disabled {
-    opacity: 0.25;
+    opacity: 0.3;
 }
 
-/* ---------- History panel ---------- */
-
-.calc-history-sidebar {
-    min-width: 280px;
+.calc-bit-pos {
+    margin-left: 6px;
+    font-size: 0.846em;
+    color: @theme_text_tertiary;
+    opacity: 0.8;
 }
 
-/* The same height as the bar beside it, so the two read as one. */
+/* ---------- History, beside the keypad ---------- */
+
 .calc-history-head {
-    min-height: 46px;
-    background: @theme_panel;
-    padding: 0 8px 0 14px;
+    min-height: 50px;
+    padding: 0 10px 0 16px;
+    border-bottom: 1px solid @sheet_line;
 }
 
 .calc-history-title {
-    font-size: 0.78em;
+    font-size: 1.077em;
     font-weight: 600;
-    color: @theme_text_tertiary;
-    letter-spacing: 1px;
 }
 
 .calc-history-search {
-    padding: 0 12px 6px;
+    padding: 12px 14px 2px;
 }
 
-.calc-history-card {
-    padding: 8px 12px;
-    margin: 0 8px;
-    border-radius: 8px;
-    transition: background 150ms ease-out;
+.calc-history-list {
+    padding: 4px 14px 14px;
 }
 
-.calc-history-card:hover {
+.calc-history-lab {
+    margin: 12px 2px 4px;
+    font-size: 0.846em;
+    font-weight: 600;
+    color: @theme_text_tertiary;
+}
+
+.calc-history-row {
+    padding: 8px 6px 8px 10px;
+    border-radius: var(--nyx-radius-small);
+    transition: background 120ms ease-out;
+}
+
+.calc-history-row:hover {
     background: @row_hover;
 }
 
-.calc-history-card.pinned {
-    background: alpha(@theme_accent, 0.08);
-    box-shadow: inset 2px 0 @theme_accent;
+.calc-history-row.pinned {
+    background: @theme_card;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
+    margin-bottom: 2px;
+}
+
+.calc-history-pin {
+    -gtk-icon-size: 14px;
+    color: @theme_accent;
 }
 
 .calc-history-expr {
-    font-size: 0.88em;
+    font-size: 0.923em;
     color: @theme_dim_text;
     font-feature-settings: "tnum" 1;
 }
 
 .calc-history-res {
-    font-size: 1.15em;
+    font-size: 1.154em;
     font-weight: 600;
     color: @theme_text;
     font-feature-settings: "tnum" 1;
 }
 
-/* Small action icon buttons in a card */
-window.calculator-window button.history-action-btn {
-    min-height: 24px;
-    min-width: 24px;
-    padding: 2px;
-    background: transparent;
-    color: @theme_dim_text;
+/* A row's buttons show while the pointer is on it. */
+.calc-history-actions {
+    opacity: 0;
+    transition: opacity 120ms ease-out;
 }
 
-window.calculator-window button.history-action-btn:hover {
-    background: @row_hover;
-    color: @theme_text;
+.calc-history-row:hover .calc-history-actions {
+    opacity: 1;
+}
+
+window.calculator-window .calc-history-row button.history-action-btn {
+    min-width: 26px;
+    min-height: 26px;
+    padding: 0;
+}
+
+window.calculator-window .calc-history-row button.history-action-btn image {
+    -gtk-icon-size: 14px;
+}
+
+.calc-history-empty {
+    margin-top: 40px;
 }
 
 /* ---------- Toast ---------- */
@@ -352,79 +466,135 @@ window.calculator-window button.history-action-btn:hover {
 /* ---------- Unit converter ---------- */
 
 .converter-view {
-    padding: 8px 12px 12px;
+    padding: 12px 16px 14px;
 }
 
-.converter-cat-row {
-    padding: 0 14px;
+.converter-kinds {
+    margin-bottom: 4px;
 }
 
-.converter-card-title {
-    font-size: 0.78em;
-    font-weight: 700;
+window.calculator-window button.converter-kind {
+    min-height: 26px;
+    padding: 0 10px;
+    border-radius: 13px;
+    background: @field;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.07);
     color: @theme_dim_text;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    font-size: 0.923em;
+    font-weight: 500;
+}
+
+window.calculator-window button.converter-kind:hover {
+    color: @theme_text;
+}
+
+window.calculator-window button.converter-kind.on {
+    background: alpha(@theme_accent, 0.13);
+    box-shadow: none;
+    color: @theme_accent;
 }
 
 .converter-card {
+    padding: 10px 12px 12px;
+    border-radius: var(--nyx-radius-card);
     background: @theme_card;
-    border-radius: 10px;
-    padding: 12px 14px;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
 }
 
-.converter-input, .converter-output {
-    font-size: 1.45em;
+.converter-card-title {
+    font-size: 0.846em;
     font-weight: 600;
+    color: @theme_text_tertiary;
+}
+
+window.calculator-window .converter-card dropdown > button {
+    min-height: 26px;
+    padding-top: 0;
+    padding-bottom: 0;
+    font-weight: 500;
+}
+
+window.calculator-window entry.converter-input {
+    min-height: 36px;
+    padding: 0 2px;
+    background: transparent;
+    box-shadow: none;
+    border: none;
+    font-family: "Inter Display", "Inter", sans-serif;
+    font-size: 2.2em;
+    font-weight: 500;
     color: @theme_text;
     font-feature-settings: "tnum" 1;
 }
 
+.converter-output {
+    padding-left: 2px;
+    font-family: "Inter Display", "Inter", sans-serif;
+    font-size: 2.2em;
+    font-weight: 500;
+    color: @theme_accent;
+    font-feature-settings: "tnum" 1;
+}
+
+.converter-output-unit {
+    font-weight: 500;
+    color: @theme_dim_text;
+}
+
 window.calculator-window button.converter-swap-btn {
-    min-height: 32px;
-    min-width: 32px;
+    min-height: 30px;
+    min-width: 30px;
+    margin: -4px 0;
     padding: 0;
-    border-radius: 16px;
-    background: @theme_card;
-    color: @theme_text;
+    border-radius: 15px;
+    background: @field;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.07);
+    color: @theme_dim_text;
+}
+
+window.calculator-window button.converter-swap-btn image {
+    -gtk-icon-transform: rotate(90deg);
 }
 
 window.calculator-window button.converter-swap-btn:hover {
     background: @row_hover;
+    color: @theme_text;
 }
 
 .converter-formula {
-    font-size: 0.84em;
+    font-size: 0.923em;
     color: @theme_dim_text;
-    min-height: 20px;
+    font-feature-settings: "tnum" 1;
+}
+
+.converter-chips-title {
+    margin-right: 2px;
+    font-size: 0.846em;
+    font-weight: 600;
+    color: @theme_text_tertiary;
 }
 
 window.calculator-window button.converter-chip {
-    min-height: 26px;
-    padding: 0 10px;
-    font-size: 0.8em;
-    font-weight: 600;
-    border-radius: 13px;
+    min-height: 24px;
+    padding: 0 8px;
+    border-radius: var(--nyx-radius-small);
+    background: @field;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.07);
     color: @theme_dim_text;
+    font-size: 0.846em;
+    font-weight: 500;
 }
 
 window.calculator-window button.converter-chip:hover {
     color: @theme_text;
 }
 
-/* ---------- Calculation sheets ---------- */
+/* ---------- Sheets ---------- */
 
-.sheets-view {
-    padding: 4px 12px 12px;
-}
-
-.sheet-title-input {
+window.calculator-window entry.sheets-title-entry {
+    min-height: 28px;
+    min-width: 160px;
     font-weight: 600;
-}
-
-.sheets-editor-pane {
-    background: @theme_card;
-    border-radius: 10px;
 }
 
 .sheets-text-view,
@@ -434,82 +604,194 @@ window.calculator-window button.converter-chip:hover {
     color: @theme_text;
 }
 
-/* Results beside their lines; the colour is what the gutter draws them in. */
+.sheet-numbers {
+    color: @theme_text_tertiary;
+    font-size: 0.846em;
+}
+
+/* Results beside their lines, after a line; the colour is what the gutter draws them in. */
 .sheet-gutter {
     color: @theme_accent;
     font-weight: 600;
     font-feature-settings: "tnum" 1;
+    border-left: 1px solid @sheet_line;
 }
 
-/* ---------- Graphing calculator ---------- */
-
-.graph-sidebar {
-    padding: 4px 12px 12px;
-}
-
-.graph-sidebar-title {
-    font-weight: 600;
-    color: @theme_text;
-}
-
-.graph-func-row {
-    padding: 2px 0;
-}
-
-/* The row's buttons are compact so the formula keeps most of the width. */
-window.calculator-window .graph-func-row button {
-    min-width: 28px;
-    min-height: 28px;
-    padding: 0;
-}
-
-.graph-color-dot {
-    font-size: 1.1em;
-    margin-right: 4px;
-}
-
-.graph-func-entry {
-    font-size: 0.9em;
-    font-feature-settings: "tnum" 1;
-}
-
-.graph-tools-box {
-    padding-top: 10px;
-}
-
-window.calculator-window togglebutton.graph-tool-toggle,
-window.calculator-window button.graph-tool-toggle {
-    min-height: 28px;
-    padding: 0 10px;
-    font-size: 0.82em;
-    font-weight: 600;
+.sheets-tip {
+    margin: 4px 20px 16px;
+    padding: 10px 12px;
+    border-radius: var(--nyx-radius-card);
+    background: @theme_card;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
     color: @theme_dim_text;
+    font-size: 0.923em;
 }
 
-window.calculator-window button.graph-tool-toggle:hover {
-    color: @theme_text;
-}
-
-window.calculator-window button.graph-tool-toggle:checked,
-window.calculator-window button.graph-tool-toggle.active {
-    background: alpha(@theme_accent, 0.14);
-    color: @theme_accent;
-}
-
-/* f′ in a function's row: as compact as the row's other buttons. */
-window.calculator-window .graph-func-row button.graph-tool-toggle {
-    min-width: 28px;
-    padding: 0;
-}
-
-.graph-integral-label {
-    font-size: 0.82em;
-    font-weight: 600;
+.sheets-tip image {
+    -gtk-icon-size: 15px;
     color: @theme_accent;
     margin-top: 2px;
 }
 
-.graph-canvas-frame {
-    margin: 4px 12px 12px 0;
-    border-radius: 10px;
+/* ---------- Graph ---------- */
+
+.graph-side {
+    padding: 12px;
+}
+
+.graph-heading {
+    margin: 6px 4px 2px;
+    font-size: 0.846em;
+    font-weight: 600;
+    color: @theme_text_tertiary;
+}
+
+.graph-fn {
+    padding: 5px 6px 5px 8px;
+    border-radius: var(--nyx-radius-small);
+    background: @theme_card;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
+}
+
+window.calculator-window button.graph-dot {
+    min-width: 12px;
+    min-height: 12px;
+    padding: 0;
+    border-radius: 6px;
+}
+
+.graph-fn-name {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.923em;
+}
+
+window.calculator-window entry.graph-fn-entry {
+    min-height: 24px;
+    padding: 0 2px;
+    background: transparent;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.923em;
+}
+
+window.calculator-window entry.graph-fn-entry:focus-within {
+    border-color: transparent;
+    background: @field;
+}
+
+window.calculator-window entry.error {
+    color: @theme_danger;
+}
+
+window.calculator-window button.graph-dvb {
+    min-height: 20px;
+    padding: 0 6px;
+    border-radius: 5px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.1);
+    color: @theme_text_tertiary;
+    font-size: 0.846em;
+    font-weight: 700;
+}
+
+window.calculator-window button.graph-dvb.on {
+    box-shadow: none;
+}
+
+/* A card's remove button shows while the pointer is on the card. */
+window.calculator-window .graph-fn button.graph-del {
+    min-width: 22px;
+    min-height: 22px;
+    opacity: 0;
+}
+
+window.calculator-window .graph-fn:hover button.graph-del,
+window.calculator-window button.graph-del:focus-visible {
+    opacity: 1;
+}
+
+window.calculator-window .graph-fn button.graph-del image {
+    -gtk-icon-size: 12px;
+}
+
+window.calculator-window button.graph-add {
+    padding: 0 8px;
+    color: @theme_accent;
+    font-weight: 500;
+}
+
+window.calculator-window button.graph-add image {
+    -gtk-icon-size: 14px;
+}
+
+window.calculator-window button.calc-chip {
+    min-height: 26px;
+    padding: 0 9px;
+    background: @field;
+    color: @theme_dim_text;
+    font-size: 0.923em;
+}
+
+window.calculator-window button.calc-chip:checked {
+    background: alpha(@theme_accent, 0.14);
+    box-shadow: inset 0 0 0 1px alpha(@theme_accent, 0.35);
+    color: @theme_text;
+}
+
+window.calculator-window button.calc-chip image {
+    -gtk-icon-size: 12px;
+}
+
+.graph-bounds {
+    margin-top: 4px;
+    color: @theme_dim_text;
+    font-size: 0.923em;
+}
+
+window.calculator-window entry.graph-bound {
+    min-height: 28px;
+    min-width: 44px;
+    padding: 0 4px;
+}
+
+.graph-results {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: var(--nyx-radius-card);
+    background: @theme_card;
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.06);
+    font-size: 0.923em;
+}
+
+.graph-results-key {
+    color: @theme_dim_text;
+}
+
+.graph-results-value {
+    font-weight: 600;
+    font-feature-settings: "tnum" 1;
+}
+
+.graph-zoom {
+    margin: 10px;
+    padding: 2px;
+    border-radius: var(--nyx-radius-small);
+    background: @theme_popover;
+    box-shadow: 0 0 0 1px alpha(@theme_text, 0.07), 0 6px 18px alpha(@theme_shadow, 0.35);
+}
+
+/* ---------- Graph in a narrow panel: functions above the plot ---------- */
+
+.graph-side.narrow {
+    padding: 10px 10px 8px;
+}
+
+.graph-plot.narrow {
+    margin: 0 10px;
+    border-radius: var(--nyx-radius-small);
+    box-shadow: inset 0 0 0 1px alpha(@theme_text, 0.07);
+}
+
+.graph-results.narrow {
+    margin: 8px 10px 10px;
+    padding: 8px 10px;
 }

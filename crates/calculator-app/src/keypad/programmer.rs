@@ -1,268 +1,238 @@
-use super::{KeyAction, make_btn};
+use super::{KeyAction, backspace_btn, grid as key_grid, make_btn};
 use calculator_core::programmer::{ProgrammerState, Radix, Signedness, WordWidth};
 use gtk::prelude::*;
 use std::rc::Rc;
 
+const WIDTHS: [(WordWidth, &str); 4] =
+    [(WordWidth::Qword, "64-bit"), (WordWidth::Dword, "32-bit"), (WordWidth::Word, "16-bit"), (WordWidth::Byte, "8-bit")];
+const SIGNS: [(Signedness, &str); 2] = [(Signedness::Signed, "Signed"), (Signedness::Unsigned, "Unsigned")];
+
 pub struct ProgrammerKeypad {
     pub root: gtk::Box,
-    pub hex_label: gtk::Label,
-    pub dec_label: gtk::Label,
-    pub oct_label: gtk::Label,
-    pub bin_label: gtk::Label,
-    pub hex_row: gtk::Box,
-    pub dec_row: gtk::Box,
-    pub oct_row: gtk::Box,
-    pub bin_row: gtk::Box,
-    pub word_btn: gtk::Button,
-    pub sign_btn: gtk::Button,
-    pub bit_buttons: Vec<gtk::Button>,
-    pub digit_buttons: Vec<(char, gtk::Button)>,
+    rows: Vec<(Radix, gtk::Box, gtk::Label)>,
+    word_label: gtk::Label,
+    sign_label: gtk::Label,
+    bit_buttons: Vec<gtk::Button>,
+    digit_buttons: Vec<(char, gtk::Button)>,
 }
 
 impl ProgrammerKeypad {
     pub fn new(on_action: impl Fn(KeyAction) + 'static) -> Self {
-        let on_action = Rc::new(on_action);
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        let on_action: Rc<dyn Fn(KeyAction)> = Rc::new(on_action);
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 8);
 
-        // 1. Radix Display Rows
-        let radix_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        radix_box.add_css_class("calc-membar");
-
-        let (hex_row, hex_label) = make_radix_row("HEX", Radix::Hex, on_action.clone());
-        let (dec_row, dec_label) = make_radix_row("DEC", Radix::Dec, on_action.clone());
-        let (oct_row, oct_label) = make_radix_row("OCT", Radix::Oct, on_action.clone());
-        let (bin_row, bin_label) = make_radix_row("BIN", Radix::Bin, on_action.clone());
-
-        radix_box.append(&hex_row);
-        radix_box.append(&dec_row);
-        radix_box.append(&oct_row);
-        radix_box.append(&bin_row);
+        // Every base, the one keys type in large; a click picks it.
+        let radix_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        radix_box.add_css_class("calc-radix-box");
+        let mut rows = Vec::new();
+        for (name, radix) in [("HEX", Radix::Hex), ("DEC", Radix::Dec), ("OCT", Radix::Oct), ("BIN", Radix::Bin)] {
+            let (row, value) = make_radix_row(name, radix, on_action.clone());
+            radix_box.append(&row);
+            rows.push((radix, row, value));
+        }
         root.append(&radix_box);
 
-        // 2. Control Row: Word Width & Signedness
-        let ctrl_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        // The word size and signedness, then how to use the bits
+        let ctrl_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         ctrl_row.add_css_class("calc-ctrl-row");
-
-        let word_btn = gtk::Button::with_label("QWORD");
-        word_btn.add_css_class("mem-btn");
-        word_btn.set_tooltip_text(Some("Word width: QWORD (64), DWORD (32), WORD (16), BYTE (8)"));
-        word_btn.set_focusable(false);
-        let cb_word = on_action.clone();
-        word_btn.connect_clicked(move |_| cb_word(KeyAction::CycleWordWidth));
+        let (word_btn, word_label) = picker("Word size");
+        let (cb, shown) = (on_action.clone(), word_label.clone());
+        word_btn.connect_clicked(move |b| {
+            let current = shown.text();
+            let entries = WIDTHS
+                .iter()
+                .map(|&(w, label)| {
+                    let cb = cb.clone();
+                    nyx_ui::menu::check(label, current == label, move |_| cb(KeyAction::SetWordWidth(w)))
+                })
+                .collect();
+            nyx_ui::menu::popup_below(b, entries);
+        });
         ctrl_row.append(&word_btn);
-
-        let sign_btn = gtk::Button::with_label("SIGNED");
-        sign_btn.add_css_class("mem-btn");
-        sign_btn.set_tooltip_text(Some("Toggle Signed / Unsigned representation"));
-        sign_btn.set_focusable(false);
-        let cb_sign = on_action.clone();
-        sign_btn.connect_clicked(move |_| cb_sign(KeyAction::ToggleSignedness));
+        let (sign_btn, sign_label) = picker("Signed or unsigned");
+        let (cb, shown) = (on_action.clone(), sign_label.clone());
+        sign_btn.connect_clicked(move |b| {
+            let current = shown.text();
+            let entries = SIGNS
+                .iter()
+                .map(|&(s, label)| {
+                    let cb = cb.clone();
+                    nyx_ui::menu::check(label, current == label, move |_| cb(KeyAction::SetSignedness(s)))
+                })
+                .collect();
+            nyx_ui::menu::popup_below(b, entries);
+        });
         ctrl_row.append(&sign_btn);
-
+        let hint = gtk::Label::new(Some("Click a bit to flip it"));
+        hint.add_css_class("calc-bit-hint");
+        hint.set_hexpand(true);
+        hint.set_xalign(1.0);
+        ctrl_row.append(&hint);
         root.append(&ctrl_row);
 
-        // 3. Interactive 64-bit Grid
-        // 4 rows of 16 bits: 63..48, 47..32, 31..16, 15..0, a small gap between nibbles
-        let bit_grid = gtk::Grid::builder().column_spacing(2).row_spacing(2).column_homogeneous(true).build();
+        // The 64 bits: four rows of 16, a gap between nibbles, each row's lowest bit
+        // number at its end.
+        let bit_grid = gtk::Grid::builder().column_spacing(2).row_spacing(0).build();
         bit_grid.add_css_class("calc-bit-grid");
-
         let mut bit_buttons = Vec::with_capacity(64);
         for row in 0..4 {
             for col in 0..16 {
                 let bit_idx = 63 - (row * 16 + col);
                 let btn = gtk::Button::with_label("0");
                 btn.add_css_class("bit-btn");
+                btn.set_hexpand(true);
                 if col % 4 == 0 && col > 0 {
                     btn.set_margin_start(6);
                 }
                 btn.set_tooltip_text(Some(&format!("Bit {bit_idx}")));
                 btn.set_focusable(false);
-                let cb_bit = on_action.clone();
-                btn.connect_clicked(move |_| cb_bit(KeyAction::ToggleBit(bit_idx)));
+                let cb = on_action.clone();
+                btn.connect_clicked(move |_| cb(KeyAction::ToggleBit(bit_idx)));
                 bit_grid.attach(&btn, col as i32, row as i32, 1, 1);
                 bit_buttons.push(btn);
             }
+            let pos = gtk::Label::new(Some(&(48 - row * 16).to_string()));
+            pos.add_css_class("calc-bit-pos");
+            pos.set_xalign(1.0);
+            pos.set_width_chars(3);
+            bit_grid.attach(&pos, 16, row as i32, 1, 1);
         }
         root.append(&bit_grid);
 
-        // 4. Programmer Keypad Grid (6 columns)
-        let grid = gtk::Grid::builder().column_spacing(6).row_spacing(6).column_homogeneous(true).row_homogeneous(true).build();
-        grid.add_css_class("calc-keypad");
+        // The keys: bit operations on top, A–F at the left, the digits in the middle,
+        // the operators at the right, 0 wide along the bottom.
+        let grid = key_grid(6);
         grid.add_css_class("calc-keypad-prog");
+        grid.set_vexpand(true);
+        let fun = "calc-btn-fn";
+        let op = "calc-btn-op";
+        let key = |label: &str, class: &str, action: KeyAction, c: i32, r: i32, w: i32| {
+            let b = make_btn(label, class, action, on_action.clone());
+            grid.attach(&b, c, r, w, 1);
+            b
+        };
+        key("AND", fun, KeyAction::BitAnd, 0, 0, 1);
+        key("OR", fun, KeyAction::BitOr, 1, 0, 1);
+        key("NOT", fun, KeyAction::BitNot, 2, 0, 1);
+        key("XOR", fun, KeyAction::BitXor, 3, 0, 1);
+        key("C", fun, KeyAction::Clear, 4, 0, 1);
+        grid.attach(&backspace_btn(on_action.clone()), 5, 0, 1, 1);
+        key("LSH", fun, KeyAction::Shl, 0, 1, 1);
+        key("RSH", fun, KeyAction::Shr, 1, 1, 1);
+        key("mod", fun, KeyAction::OpMod, 2, 1, 1);
+        key("(", fun, KeyAction::LParen, 3, 1, 1);
+        key(")", fun, KeyAction::RParen, 4, 1, 1);
+        key("÷", op, KeyAction::OpDiv, 5, 1, 1);
 
         let mut digit_buttons = Vec::new();
-
-        // Row 0: A, B, AND, OR, NOT, C
-        let btn_a = make_digit_btn('A', on_action.clone());
-        grid.attach(&btn_a, 0, 0, 1, 1);
-        digit_buttons.push(('A', btn_a));
-
-        let btn_b = make_digit_btn('B', on_action.clone());
-        grid.attach(&btn_b, 1, 0, 1, 1);
-        digit_buttons.push(('B', btn_b));
-
-        grid.attach(&make_btn("AND", "calc-btn-fn", KeyAction::BitAnd, on_action.clone()), 2, 0, 1, 1);
-        grid.attach(&make_btn("OR", "calc-btn-fn", KeyAction::BitOr, on_action.clone()), 3, 0, 1, 1);
-        grid.attach(&make_btn("NOT", "calc-btn-fn", KeyAction::BitNot, on_action.clone()), 4, 0, 1, 1);
-        grid.attach(&make_btn("C", "calc-btn-clear", KeyAction::Clear, on_action.clone()), 5, 0, 1, 1);
-
-        // Row 1: C, D, XOR, LSH, RSH, ⌫
-        let btn_c = make_digit_btn('C', on_action.clone());
-        grid.attach(&btn_c, 0, 1, 1, 1);
-        digit_buttons.push(('C', btn_c));
-
-        let btn_d = make_digit_btn('D', on_action.clone());
-        grid.attach(&btn_d, 1, 1, 1, 1);
-        digit_buttons.push(('D', btn_d));
-
-        grid.attach(&make_btn("XOR", "calc-btn-fn", KeyAction::BitXor, on_action.clone()), 2, 1, 1, 1);
-        grid.attach(&make_btn("LSH", "calc-btn-fn", KeyAction::Shl, on_action.clone()), 3, 1, 1, 1);
-        grid.attach(&make_btn("RSH", "calc-btn-fn", KeyAction::Shr, on_action.clone()), 4, 1, 1, 1);
-        grid.attach(&make_btn("⌫", "calc-btn-clear", KeyAction::Backspace, on_action.clone()), 5, 1, 1, 1);
-
-        // Row 2: E, F, mod, (, ), ÷
-        let btn_e = make_digit_btn('E', on_action.clone());
-        grid.attach(&btn_e, 0, 2, 1, 1);
-        digit_buttons.push(('E', btn_e));
-
-        let btn_f = make_digit_btn('F', on_action.clone());
-        grid.attach(&btn_f, 1, 2, 1, 1);
-        digit_buttons.push(('F', btn_f));
-
-        grid.attach(&make_btn("mod", "calc-btn-fn", KeyAction::OpMod, on_action.clone()), 2, 2, 1, 1);
-        grid.attach(&make_btn("(", "calc-btn-fn", KeyAction::LParen, on_action.clone()), 3, 2, 1, 1);
-        grid.attach(&make_btn(")", "calc-btn-fn", KeyAction::RParen, on_action.clone()), 4, 2, 1, 1);
-        grid.attach(&make_btn("÷", "calc-btn-op", KeyAction::OpDiv, on_action.clone()), 5, 2, 1, 1);
-
-        // Row 3: 7, 8, 9, ×, ±, CE
-        let btn_7 = make_digit_btn('7', on_action.clone());
-        grid.attach(&btn_7, 0, 3, 1, 1);
-        digit_buttons.push(('7', btn_7));
-
-        let btn_8 = make_digit_btn('8', on_action.clone());
-        grid.attach(&btn_8, 1, 3, 1, 1);
-        digit_buttons.push(('8', btn_8));
-
-        let btn_9 = make_digit_btn('9', on_action.clone());
-        grid.attach(&btn_9, 2, 3, 1, 1);
-        digit_buttons.push(('9', btn_9));
-
-        grid.attach(&make_btn("×", "calc-btn-op", KeyAction::OpMul, on_action.clone()), 3, 3, 1, 1);
-        grid.attach(&make_btn("±", "calc-btn-digit", KeyAction::Negate, on_action.clone()), 4, 3, 1, 1);
-        grid.attach(&make_btn("CE", "calc-btn-clear", KeyAction::ClearEntry, on_action.clone()), 5, 3, 1, 1);
-
-        // Row 4: 4, 5, 6, −, +, =
-        let btn_4 = make_digit_btn('4', on_action.clone());
-        grid.attach(&btn_4, 0, 4, 1, 1);
-        digit_buttons.push(('4', btn_4));
-
-        let btn_5 = make_digit_btn('5', on_action.clone());
-        grid.attach(&btn_5, 1, 4, 1, 1);
-        digit_buttons.push(('5', btn_5));
-
-        let btn_6 = make_digit_btn('6', on_action.clone());
-        grid.attach(&btn_6, 2, 4, 1, 1);
-        digit_buttons.push(('6', btn_6));
-
-        grid.attach(&make_btn("−", "calc-btn-op", KeyAction::OpSub, on_action.clone()), 3, 4, 1, 1);
-        grid.attach(&make_btn("+", "calc-btn-op", KeyAction::OpAdd, on_action.clone()), 4, 4, 1, 1);
-        grid.attach(&make_btn("=", "calc-btn-equals", KeyAction::Equals, on_action.clone()), 5, 4, 1, 2);
-
-        // Row 5: 1, 2, 3, 0, .
-        let btn_1 = make_digit_btn('1', on_action.clone());
-        grid.attach(&btn_1, 0, 5, 1, 1);
-        digit_buttons.push(('1', btn_1));
-
-        let btn_2 = make_digit_btn('2', on_action.clone());
-        grid.attach(&btn_2, 1, 5, 1, 1);
-        digit_buttons.push(('2', btn_2));
-
-        let btn_3 = make_digit_btn('3', on_action.clone());
-        grid.attach(&btn_3, 2, 5, 1, 1);
-        digit_buttons.push(('3', btn_3));
-
-        let btn_0 = make_digit_btn('0', on_action);
-        grid.attach(&btn_0, 3, 5, 2, 1);
-        digit_buttons.push(('0', btn_0));
-
+        let rows_of_digits: [([char; 2], [char; 3], &str, KeyAction); 3] = [
+            (['A', 'B'], ['7', '8', '9'], "×", KeyAction::OpMul),
+            (['C', 'D'], ['4', '5', '6'], "−", KeyAction::OpSub),
+            (['E', 'F'], ['1', '2', '3'], "+", KeyAction::OpAdd),
+        ];
+        for (r, (hex, digits, sym, action)) in rows_of_digits.into_iter().enumerate() {
+            let r = r as i32 + 2;
+            for (c, ch) in hex.into_iter().chain(digits).enumerate() {
+                let b = key(&ch.to_string(), "calc-btn-digit", KeyAction::Digit(ch), c as i32, r, 1);
+                if ch.is_ascii_alphabetic() {
+                    b.add_css_class("calc-btn-hex");
+                }
+                digit_buttons.push((ch, b));
+            }
+            key(sym, op, action, 5, r, 1);
+        }
+        key("CE", fun, KeyAction::ClearEntry, 0, 5, 1);
+        key("±", "calc-btn-digit", KeyAction::Negate, 1, 5, 1);
+        let zero = key("0", "calc-btn-digit", KeyAction::Digit('0'), 2, 5, 3);
+        digit_buttons.push(('0', zero));
+        key("=", "calc-btn-equals", KeyAction::Equals, 5, 5, 1);
         root.append(&grid);
 
-        Self {
-            root,
-            hex_label,
-            dec_label,
-            oct_label,
-            bin_label,
-            hex_row,
-            dec_row,
-            oct_row,
-            bin_row,
-            word_btn,
-            sign_btn,
-            bit_buttons,
-            digit_buttons,
-        }
+        Self { root, rows, word_label, sign_label, bit_buttons, digit_buttons }
     }
 
     pub fn update_state(&self, state: &ProgrammerState) {
-        // Update labels
-        self.hex_label.set_text(&state.format_hex());
-        self.dec_label.set_text(&state.format_dec());
-        self.oct_label.set_text(&state.format_oct());
-        self.bin_label.set_text(&state.format_bin());
-
-        // Update active radix styling
-        self.hex_row.remove_css_class("active-radix");
-        self.dec_row.remove_css_class("active-radix");
-        self.oct_row.remove_css_class("active-radix");
-        self.bin_row.remove_css_class("active-radix");
-
-        match state.active_radix {
-            Radix::Hex => self.hex_row.add_css_class("active-radix"),
-            Radix::Dec => self.dec_row.add_css_class("active-radix"),
-            Radix::Oct => self.oct_row.add_css_class("active-radix"),
-            Radix::Bin => self.bin_row.add_css_class("active-radix"),
+        for (radix, row, value) in &self.rows {
+            value.set_text(&match radix {
+                Radix::Hex => trim_zeros(&state.format_hex()),
+                Radix::Dec => thousands(&state.format_dec()),
+                Radix::Oct => group(&state.format_oct(), 3),
+                Radix::Bin => trim_nibbles(&state.format_bin()),
+            });
+            if *radix == state.active_radix {
+                row.add_css_class("active-radix");
+            } else {
+                row.remove_css_class("active-radix");
+            }
         }
 
-        // Update word width and signedness labels
-        let w_label = match state.width {
-            WordWidth::Qword => "QWORD (64)",
-            WordWidth::Dword => "DWORD (32)",
-            WordWidth::Word => "WORD (16)",
-            WordWidth::Byte => "BYTE (8)",
-        };
-        self.word_btn.set_label(w_label);
+        self.word_label.set_text(WIDTHS.iter().find(|w| w.0 == state.width).map_or("64-bit", |w| w.1));
+        self.sign_label.set_text(SIGNS.iter().find(|s| s.0 == state.signedness).map_or("Signed", |s| s.1));
 
-        let s_label = match state.signedness {
-            Signedness::Signed => "SIGNED",
-            Signedness::Unsigned => "UNSIGNED",
-        };
-        self.sign_btn.set_label(s_label);
-
-        // Update 64 bits display and sensitivity
         let max_bits = state.width.bits();
         for (i, btn) in self.bit_buttons.iter().enumerate() {
             let bit_idx = 63 - i;
-            let bit_val = state.get_bit(bit_idx);
-            btn.set_label(if bit_val { "1" } else { "0" });
-            if bit_idx < max_bits {
-                btn.set_sensitive(true);
-                if bit_val {
-                    btn.add_css_class("active");
-                } else {
-                    btn.remove_css_class("active");
-                }
+            let on = state.get_bit(bit_idx);
+            btn.set_label(if on { "1" } else { "0" });
+            btn.set_sensitive(bit_idx < max_bits);
+            if on && bit_idx < max_bits {
+                btn.add_css_class("active");
             } else {
-                btn.set_sensitive(false);
                 btn.remove_css_class("active");
             }
         }
 
-        // Update digit buttons sensitivity based on active radix
         for (ch, btn) in &self.digit_buttons {
             btn.set_sensitive(state.active_radix.is_digit_valid(*ch));
         }
     }
+}
+
+/// A dropdown-looking button: its choice and a chevron.
+fn picker(tip: &str) -> (gtk::Button, gtk::Label) {
+    let button = gtk::Button::new();
+    button.add_css_class("calc-picker");
+    button.set_focusable(false);
+    button.set_tooltip_text(Some(tip));
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let label = gtk::Label::new(None);
+    content.append(&label);
+    let chevron = gtk::Image::from_icon_name("pan-down-symbolic");
+    chevron.add_css_class("calc-mode-chevron");
+    content.append(&chevron);
+    button.set_child(Some(&content));
+    (button, label)
+}
+
+fn trim_zeros(s: &str) -> String {
+    let t = s.trim_start_matches('0');
+    if t.is_empty() { "0".into() } else { t.into() }
+}
+
+/// `-12345` as `-12,345`.
+fn thousands(s: &str) -> String {
+    let (sign, digits) = s.strip_prefix('-').map_or(("", s), |d| ("−", d));
+    format!("{sign}{}", group(digits, 3).replace(' ', ","))
+}
+
+/// Digits in groups of `n` from the right, a space between.
+fn group(s: &str, n: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    for (i, c) in chars.iter().enumerate() {
+        if i > 0 && (chars.len() - i).is_multiple_of(n) {
+            out.push(' ');
+        }
+        out.push(*c);
+    }
+    out
+}
+
+/// The bits from the highest nibble that has one set.
+fn trim_nibbles(s: &str) -> String {
+    let groups: Vec<&str> = s.split(' ').collect();
+    let first = groups.iter().position(|g| g.contains('1')).unwrap_or(groups.len().saturating_sub(1));
+    groups[first..].join(" ")
 }
 
 fn make_radix_row(name: &str, radix: Radix, cb: Rc<dyn Fn(KeyAction)>) -> (gtk::Box, gtk::Label) {
@@ -271,6 +241,7 @@ fn make_radix_row(name: &str, radix: Radix, cb: Rc<dyn Fn(KeyAction)>) -> (gtk::
 
     let tag = gtk::Label::new(Some(name));
     tag.add_css_class("calc-radix-tag");
+    tag.set_xalign(0.0);
     row.append(&tag);
 
     let val = gtk::Label::new(Some("0"));
@@ -290,6 +261,19 @@ fn make_radix_row(name: &str, radix: Radix, cb: Rc<dyn Fn(KeyAction)>) -> (gtk::
     (row, val)
 }
 
-fn make_digit_btn(ch: char, cb: Rc<dyn Fn(KeyAction)>) -> gtk::Button {
-    make_btn(&ch.to_string(), "calc-btn-digit", KeyAction::Digit(ch), cb)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bases_read_as_drawn() {
+        assert_eq!(trim_zeros("000000000000BEEF"), "BEEF");
+        assert_eq!(trim_zeros("0000"), "0");
+        assert_eq!(thousands("48879"), "48,879");
+        assert_eq!(thousands("-1234567"), "−1,234,567");
+        assert_eq!(group("137357", 3), "137 357");
+        assert_eq!(group("1357", 3), "1 357");
+        assert_eq!(trim_nibbles("0000 0000 1011 1110 1110 1111"), "1011 1110 1110 1111");
+        assert_eq!(trim_nibbles("0000 0000"), "0000");
+    }
 }

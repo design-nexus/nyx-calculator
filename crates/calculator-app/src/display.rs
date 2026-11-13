@@ -6,53 +6,45 @@ pub struct DisplayView {
     pub tape_label: gtk::Label,
     pub preview_label: gtk::Label,
     pub readout_label: gtk::Label,
-    pub mem_badge: gtk::Label,
     pub error_badge: gtk::Label,
 }
 
 impl DisplayView {
     pub fn new() -> Self {
+        // Bottom-aligned in whatever height the keypad leaves.
         let root = gtk::Box::new(gtk::Orientation::Vertical, 4);
         root.add_css_class("calc-display");
+        root.set_vexpand(true);
+        root.set_valign(gtk::Align::End);
 
-        // Top line: tape and badges
-        let top_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let mem_badge = gtk::Label::new(Some("M"));
-        mem_badge.add_css_class("calc-badge");
-        mem_badge.set_visible(false);
-        top_row.append(&mem_badge);
+        let line = |class: &str| {
+            let l = gtk::Label::new(None);
+            l.add_css_class(class);
+            l.set_xalign(1.0);
+            l.set_ellipsize(pango::EllipsizeMode::Start);
+            l
+        };
 
-        let tape_label = gtk::Label::new(None);
-        tape_label.add_css_class("calc-tape");
-        tape_label.set_hexpand(true);
-        tape_label.set_xalign(1.0);
-        tape_label.set_ellipsize(pango::EllipsizeMode::Start);
-        top_row.append(&tape_label);
-        root.append(&top_row);
+        // The last sum, then its live result while typing, then the number itself
+        let tape_label = line("calc-tape");
+        root.append(&tape_label);
 
-        // Second line: live preview
-        let preview_label = gtk::Label::new(None);
-        preview_label.add_css_class("calc-preview");
-        preview_label.set_xalign(1.0);
+        let preview_label = line("calc-preview");
         preview_label.set_visible(false);
         root.append(&preview_label);
 
-        // Third line: primary readout
-        let readout_label = gtk::Label::new(Some("0"));
-        readout_label.add_css_class("calc-readout");
-        readout_label.set_xalign(1.0);
-        readout_label.set_ellipsize(pango::EllipsizeMode::Start);
+        let readout_label = line("calc-readout");
+        readout_label.set_text("0");
         readout_label.set_selectable(true);
         root.append(&readout_label);
 
-        // Fourth line: error indicator badge (hidden when no error)
         let error_badge = gtk::Label::new(None);
         error_badge.add_css_class("calc-error-badge");
         error_badge.set_halign(gtk::Align::End);
         error_badge.set_visible(false);
         root.append(&error_badge);
 
-        Self { root, tape_label, preview_label, readout_label, mem_badge, error_badge }
+        Self { root, tape_label, preview_label, readout_label, error_badge }
     }
 
     pub fn set_tape(&self, text: &str) {
@@ -71,18 +63,12 @@ impl DisplayView {
 
     pub fn set_readout(&self, text: &str) {
         self.readout_label.set_text(text);
-        // Dynamically scale font size if the number gets very long
-        if text.len() > 14 {
-            self.readout_label.remove_css_class("calc-readout");
-            self.readout_label.add_css_class("calc-readout-small");
+        // Long numbers step down a size before they're cut off at the start.
+        if text.chars().count() > 11 {
+            self.readout_label.add_css_class("long");
         } else {
-            self.readout_label.remove_css_class("calc-readout-small");
-            self.readout_label.add_css_class("calc-readout");
+            self.readout_label.remove_css_class("long");
         }
-    }
-
-    pub fn set_memory_active(&self, active: bool) {
-        self.mem_badge.set_visible(active);
     }
 
     pub fn set_error(&self, error: Option<&str>) {

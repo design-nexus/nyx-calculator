@@ -15,6 +15,8 @@ pub struct Prefs {
     pub history_retention: usize, // max items to retain
     pub calculator_mode: String,
     pub radians: bool,
+    /// Unit pairs converted lately, newest first (unit ids).
+    pub recent_units: Vec<(String, String)>,
 }
 
 impl Default for Prefs {
@@ -31,6 +33,7 @@ impl Default for Prefs {
             history_retention: 100,
             calculator_mode: "standard".into(),
             radians: false,
+            recent_units: Vec::new(),
         }
     }
 }

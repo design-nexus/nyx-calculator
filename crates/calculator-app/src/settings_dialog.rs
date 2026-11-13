@@ -33,6 +33,8 @@ pub fn open() {
     let (Some(overlay), Some(win)) = (window::overlay(), window::window()) else {
         return;
     };
+    // The card opens over the calculator, from a tool panel too.
+    window::show();
     settings_card::open(&overlay, &win, SPEC, || {
         let p = widgets::page("settings");
         build_content(&p);
@@ -50,18 +52,29 @@ fn calc_group(p: &Page) {
     let current = prefs::get();
 
     let (row, _) = widgets::choice_row(
-        "Angles", "Units for trigonometric calculations.",
+        "Angles",
+        "Units for trigonometric calculations.",
         vec![("degrees".into(), "Degrees".into()), ("radians".into(), "Radians".into())],
         if current.radians { "radians" } else { "degrees" },
-        |id| { prefs::update(|p| p.radians = id == "radians"); window::apply_angle_preference(); },
+        |id| {
+            prefs::update(|p| p.radians = id == "radians");
+            window::apply_angle_preference();
+        },
     );
     group.add(&row);
     let (row, _) = widgets::choice_row(
-        "Start in", "Mode to open next time. Switching modes also remembers your choice.",
-        vec![("standard".into(), "Standard".into()), ("scientific".into(), "Scientific".into()),
-             ("programmer".into(), "Programmer".into()), ("converter".into(), "Unit converter".into()),
-             ("sheets".into(), "Calculation sheets".into()), ("graph".into(), "Graph".into())],
-        &current.calculator_mode, |id| prefs::update(|p| p.calculator_mode = id),
+        "Start in",
+        "What opens next time. Switching keypads also remembers your choice; a tool opens beside the calculator.",
+        vec![
+            ("standard".into(), "Standard".into()),
+            ("scientific".into(), "Scientific".into()),
+            ("programmer".into(), "Programmer".into()),
+            ("converter".into(), "Unit converter".into()),
+            ("sheets".into(), "Sheets".into()),
+            ("graph".into(), "Graph".into()),
+        ],
+        &current.calculator_mode,
+        |id| prefs::update(|p| p.calculator_mode = id),
     );
     group.add(&row);
     let prec_options = vec![
@@ -129,24 +142,23 @@ fn history_group(p: &Page) {
 
 /// Every shortcut, for the card's Keyboard group.
 const SHORTCUTS: &[(&[&str], &str)] = &[
-    (&["Alt", "1"], "Standard mode"),
-    (&["Alt", "2"], "Scientific mode"),
-    (&["Alt", "3"], "Programmer mode"),
-    (&["Alt", "4"], "Unit Converter"),
-    (&["Alt", "5"], "Calculation Sheets"),
-    (&["Alt", "6"], "Graphing Calculator"),
+    (&["Alt", "1"], "Standard keypad"),
+    (&["Alt", "2"], "Scientific keypad"),
+    (&["Alt", "3"], "Programmer keypad"),
+    (&["Alt", "4"], "Unit converter, beside the calculator"),
+    (&["Alt", "5"], "Sheets, beside the calculator"),
+    (&["Alt", "6"], "Graph, beside the calculator"),
+    (&["Esc"], "Put the open tool away"),
     (&["0–9", "."], "Enter digits and decimal point"),
     (&["+", "−", "×", "÷"], "Basic arithmetic operations"),
     (&["Enter", "="], "Calculate result"),
     (&["Backspace"], "Delete last character"),
     (&["Esc", "C"], "Clear current expression"),
-    (&["Ctrl", "H"], "Toggle history sidebar"),
+    (&["Ctrl", "H"], "Show or hide history"),
     (&["Ctrl", "C"], "Copy result to clipboard"),
     (&["Ctrl", "V"], "Paste expression"),
     (&["Ctrl", "M"], "Store current value in memory (MS)"),
     (&["Ctrl", "R"], "Recall memory value (MR)"),
-    (&["Ctrl", "P"], "Add to memory (M+)"),
-    (&["Ctrl", "Q"], "Subtract from memory (M−)"),
     (&["Ctrl", "L"], "Clear memory register (MC)"),
     (&["Ctrl", ","], "Open settings"),
     (&["F1"], "Show shortcuts dialog"),

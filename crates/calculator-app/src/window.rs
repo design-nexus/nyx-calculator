@@ -1,10 +1,10 @@
 use crate::display::DisplayView;
-use crate::history_sidebar::HistorySidebar;
+use crate::history_sidebar::{self, HistorySidebar};
 use crate::keypad::{KeyAction, ProgrammerKeypad, ScientificKeypad, StandardKeypad};
 use crate::keys::install_calculator_keys;
-use crate::views::{ConverterView, GraphView, SheetsView};
-use crate::{prefs, settings_dialog, theme};
-use calculator_core::programmer::{ProgrammerState, Signedness, WordWidth};
+use crate::tools::{self, Tool};
+use crate::{hypr, icons, prefs, settings_dialog, theme};
+use calculator_core::programmer::ProgrammerState;
 use calculator_core::scientific::AngleMode;
 use calculator_core::{CalcError, FormatOptions, MemoryRegister, evaluate_str_with_mode, format_decimal, preview_str_with_mode};
 use calculator_storage::CalculatorDb;
@@ -18,24 +18,39 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::str::FromStr;
 
+/// History's panel and the line before it.
+const HISTORY_EXTRA: i32 = history_sidebar::WIDTH + 13;
+
+/// Each keypad's window: Standard small, Scientific and Programmer with room for
+/// six columns. History adds its width.
+fn keypad_size(mode: &str) -> (i32, i32) {
+    match mode {
+        "scientific" => (500, 580),
+        "programmer" => (580, 660),
+        _ => (360, 600),
+    }
+}
+
+/// The keypads that switch inside the calculator, with their menu icon and key.
+const KEYPADS: &[(&str, &str, &str, &str)] = &[
+    ("standard", "Standard", "accessories-calculator-symbolic", "Alt 1"),
+    ("scientific", "Scientific", icons::FX, "Alt 2"),
+    ("programmer", "Programmer", icons::BINARY, "Alt 3"),
+];
+
 pub(crate) struct Ui {
     window: gtk::ApplicationWindow,
     overlay: gtk::Overlay,
-    content_stack: gtk::Stack,
+    frame_root: gtk::Box,
     display: DisplayView,
     keypad_stack: gtk::Stack,
-    standard_keypad: StandardKeypad,
-    scientific_keypad: ScientificKeypad,
     programmer_keypad: ProgrammerKeypad,
-    #[allow(dead_code)]
-    converter_view: ConverterView,
-    #[allow(dead_code)]
-    sheets_view: SheetsView,
-    #[allow(dead_code)]
-    graph_view: GraphView,
+    mem: MemoryRow,
     sidebar: Rc<RefCell<HistorySidebar>>,
-    sidebar_container: gtk::Box,
+    history_box: gtk::Box,
     mode_btn: gtk::Button,
+    mode_label: gtk::Label,
+    tool_btn: gtk::Button,
     hist_btn: gtk::Button,
     db: CalculatorDb,
     memory: MemoryRegister,
@@ -68,17 +83,14 @@ pub fn overlay() -> Option<gtk::Overlay> {
     ui().map(|u| u.borrow().overlay.clone())
 }
 
-pub fn present(app: &gtk::Application, _section: Option<&str>) {
-    if let Some(ui) = ui() {
-        let (w, h) = {
-            let b = ui.borrow();
-            let mode = b.mode.clone();
-            let (bw, bh) = mode_dimensions(&mode);
-            let is_hist_open = b.sidebar_container.is_visible();
-            (if is_hist_open { bw + 280 } else { bw }, bh)
-        };
-        ui.borrow().window.present();
-        ensure_floating(w, h);
+/// Shows the calculator, and `section`'s tool beside it.
+pub fn present(app: &gtk::Application, section: Option<&str>) {
+    let tool = section.and_then(Tool::from_mode);
+    if ui().is_some() {
+        show();
+        if let Some(tool) = tool {
+            tools::open(tool);
+        }
         return;
     }
     theme::install();
@@ -90,49 +102,118 @@ pub fn present(app: &gtk::Application, _section: Option<&str>) {
         return;
     }
 
-    if let Some(ui) = ui() {
-        let (w, h) = {
-            let b = ui.borrow();
-            let mode = b.mode.clone();
-            let (bw, bh) = mode_dimensions(&mode);
-            let is_hist_open = b.sidebar_container.is_visible();
-            (if is_hist_open { bw + 280 } else { bw }, bh)
-        };
-        ui.borrow().window.present();
-        ensure_floating(w, h);
+    show();
+    let start = std::env::var("CALCULATOR_MODE").unwrap_or_else(|_| prefs::get().calculator_mode);
+    let tool = tool.or_else(|| Tool::from_mode(&start));
+    // Beside the calculator once Hyprland has placed it.
+    glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+        run_test_hooks();
+        if let Some(tool) = tool {
+            tools::open(tool);
+        }
+    });
+}
+
+/// Shows the calculator where it was, or floating in the middle the first time.
+pub fn show() {
+    let Some(w) = window() else { return };
+    let first = !w.is_visible();
+    w.present();
+    if first {
+        ensure_floating();
     }
 }
 
-fn build(app: &gtk::Application) {
-    let initial_mode = std::env::var("CALCULATOR_MODE").unwrap_or_else(|_| prefs::get().calculator_mode);
-    let (init_w, init_h) = mode_dimensions(&initial_mode);
-    let is_hist_open = prefs::get().history_open;
-    let final_init_w = if is_hist_open { init_w + 280 } else { init_w };
+/// The calculator's size as it asks for it now (its keypad's, and History's).
+pub fn size() -> (i32, i32) {
+    ui().map(|u| u.borrow().frame_root.size_request()).unwrap_or((360, 600))
+}
 
-    let window = gtk::ApplicationWindow::builder()
-        .application(app)
-        .title("Calculator")
-        .default_width(final_init_w)
-        .default_height(init_h)
-        .build();
+/// The open tool's icon in the bar, highlighted; a click puts the tool away.
+pub fn show_tool(tool: Option<Tool>) {
+    let Some(ui) = ui() else { return };
+    let ui = ui.borrow();
+    ui.tool_btn.set_visible(tool.is_some());
+    if let Some(tool) = tool {
+        ui.tool_btn.set_icon_name(tool.icon());
+        ui.tool_btn.update_property(&[gtk::accessible::Property::Label(&format!("Hide {}", tool.title()))]);
+    }
+}
+
+/// For screenshots of test copies: NYX_CALCULATOR_TEST_INPUT types its keys (`m` is
+/// MS, `h` shows History), and NYX_CALCULATOR_TEST_MENU=1 opens the mode menu.
+fn run_test_hooks() {
+    for c in std::env::var("NYX_CALCULATOR_TEST_INPUT").unwrap_or_default().chars() {
+        if c == 'h' {
+            toggle_history();
+            continue;
+        }
+        if c == 'x' {
+            handle_action(KeyAction::SelectRadix(calculator_core::programmer::Radix::Hex));
+            continue;
+        }
+        handle_action(match c {
+            '0'..='9' => KeyAction::Digit(c),
+            '.' => KeyAction::Dot,
+            '+' => KeyAction::OpAdd,
+            '-' => KeyAction::OpSub,
+            '*' => KeyAction::OpMul,
+            '/' => KeyAction::OpDiv,
+            '=' => KeyAction::Equals,
+            'm' => KeyAction::MemStore,
+            'c' => KeyAction::Clear,
+            '|' => KeyAction::BitOr,
+            _ => continue,
+        });
+    }
+    if std::env::var_os("NYX_CALCULATOR_TEST_MENU").is_some()
+        && let Some(ui) = ui()
+    {
+        let button = ui.borrow().mode_btn.clone();
+        open_mode_menu(&button);
+    }
+    // NYX_CALCULATOR_TEST_THEN: modes to switch to, `h` (History) or `close` (the tool), a second apart.
+    let then = std::env::var("NYX_CALCULATOR_TEST_THEN").unwrap_or_default();
+    for (i, step) in then.split(',').filter(|s| !s.is_empty()).map(String::from).enumerate() {
+        glib::timeout_add_local_once(std::time::Duration::from_millis(1500 + 1000 * i as u64), move || match step.as_str() {
+            "h" => toggle_history(),
+            "close" => tools::close(),
+            mode => switch_mode(mode),
+        });
+    }
+}
+
+/// Quits once the calculator is closed (its tool panel goes with it).
+fn quit_if_idle() {
+    glib::idle_add_local_once(|| {
+        let calculator_open = window().is_some_and(|w| w.is_visible());
+        if !calculator_open && let Some(app) = gio::Application::default() {
+            app.quit();
+        }
+    });
+}
+
+fn build(app: &gtk::Application) {
+    let window = gtk::ApplicationWindow::builder().application(app).title("Calculator").resizable(false).build();
     window.add_css_class("calculator-window");
+    // Closing hides it first, so the open tool is put away (its sheet saved) before quitting.
+    window.set_hide_on_close(true);
+    window.connect_hide(|_| {
+        tools::close();
+        quit_if_idle();
+    });
 
     window.set_titlebar(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
     chrome::set_title(&window, "Calculator", "Standard");
 
-    let overlay = gtk::Overlay::new();
-    let main_h_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-
-    let calc_v_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    calc_v_box.set_hexpand(true);
-
     // The one bar: the app's icon and the mode menu, then History and Settings. Built
-    // like nyx_ui::chrome::app_header but without window controls: Calculator always
-    // floats, and at 360 px they would crowd the bar.
+    // like nyx_ui::chrome::app_header but without window controls: the calculator
+    // floats at its own size, and at 360 px they would crowd the bar.
     let bar = gtk::CenterBox::new();
     bar.add_css_class("app-header");
+    bar.add_css_class("calc-bar");
     let bar_start = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    let app_icon = gtk::Image::from_icon_name("accessories-calculator-symbolic");
+    let app_icon = gtk::Image::from_icon_name(icons::CALC);
     app_icon.add_css_class("app-icon");
     bar_start.append(&app_icon);
     let bar_end = gtk::Box::new(gtk::Orientation::Horizontal, 2);
@@ -141,173 +222,91 @@ fn build(app: &gtk::Application) {
     let topbar = gtk::WindowHandle::new();
     topbar.set_child(Some(&bar));
 
-    // Mode dropdown button & Popover
-    let mode_btn = gtk::Button::with_label("Standard ▾");
-    mode_btn.add_css_class("mode-selector");
+    let mode_btn = gtk::Button::new();
+    mode_btn.add_css_class("calc-mode");
     mode_btn.set_valign(gtk::Align::Center);
-    mode_btn.set_tooltip_text(Some("Switch mode (Alt+1 to Alt+6)"));
-
-    let popover = gtk::Popover::new();
-    let pop_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    pop_box.set_margin_start(6);
-    pop_box.set_margin_end(6);
-    pop_box.set_margin_top(6);
-    pop_box.set_margin_bottom(6);
-
-    let btn_m_std = gtk::Button::with_label("Standard");
-    btn_m_std.add_css_class("flat");
-    let btn_m_sci = gtk::Button::with_label("Scientific");
-    btn_m_sci.add_css_class("flat");
-    let btn_m_prg = gtk::Button::with_label("Programmer");
-    btn_m_prg.add_css_class("flat");
-    let btn_m_conv = gtk::Button::with_label("Unit Converter");
-    btn_m_conv.add_css_class("flat");
-    let btn_m_sheets = gtk::Button::with_label("Calculation Sheets");
-    btn_m_sheets.add_css_class("flat");
-    let btn_m_graph = gtk::Button::with_label("Graphing Calculator");
-    btn_m_graph.add_css_class("flat");
-
-    for b in [&btn_m_std, &btn_m_sci, &btn_m_prg, &btn_m_conv, &btn_m_sheets, &btn_m_graph] {
-        if let Some(label) = b.child().and_downcast::<gtk::Label>() {
-            label.set_xalign(0.0);
-        }
-    }
-
-    pop_box.append(&btn_m_std);
-    pop_box.append(&btn_m_sci);
-    pop_box.append(&btn_m_prg);
-    pop_box.append(&btn_m_conv);
-    pop_box.append(&btn_m_sheets);
-    pop_box.append(&btn_m_graph);
-    popover.set_child(Some(&pop_box));
-    popover.set_parent(&mode_btn);
-
-    let p_clone = popover.clone();
-    mode_btn.connect_clicked(move |_| p_clone.popup());
-
-    let p_s1 = popover.clone();
-    btn_m_std.connect_clicked(move |_| {
-        p_s1.popdown();
-        switch_mode("standard");
-    });
-    let p_s2 = popover.clone();
-    btn_m_sci.connect_clicked(move |_| {
-        p_s2.popdown();
-        switch_mode("scientific");
-    });
-    let p_s3 = popover.clone();
-    btn_m_prg.connect_clicked(move |_| {
-        p_s3.popdown();
-        switch_mode("programmer");
-    });
-    let p_s4 = popover.clone();
-    btn_m_conv.connect_clicked(move |_| {
-        p_s4.popdown();
-        switch_mode("converter");
-    });
-    let p_s5 = popover.clone();
-    btn_m_sheets.connect_clicked(move |_| {
-        p_s5.popdown();
-        switch_mode("sheets");
-    });
-    let p_s6 = popover.clone();
-    btn_m_graph.connect_clicked(move |_| {
-        p_s6.popdown();
-        switch_mode("graph");
-    });
-
+    mode_btn.set_tooltip_text(Some("Keypads and tools (Alt+1 to Alt+6)"));
+    let mode_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let mode_label = gtk::Label::new(Some("Standard"));
+    mode_content.append(&mode_label);
+    let chevron = gtk::Image::from_icon_name("pan-down-symbolic");
+    chevron.add_css_class("calc-mode-chevron");
+    mode_content.append(&chevron);
+    mode_btn.set_child(Some(&mode_content));
+    mode_btn.connect_clicked(open_mode_menu);
     bar_start.append(&mode_btn);
 
-    // History toggle (accent-tinted while the panel is open) and Settings
-    let hist_btn = nyx_ui::widgets::bar_button("document-open-recent-symbolic", "Calculation history (Ctrl+H)");
-    if prefs::get().history_open {
-        hist_btn.add_css_class("toggled");
-    }
+    let tool_btn = nyx_ui::widgets::bar_button(icons::PLOT, "Hide the tool (Esc)");
+    tool_btn.add_css_class("toggled");
+    tool_btn.set_visible(false);
+    tool_btn.connect_clicked(|_| tools::close());
+    bar_end.append(&tool_btn);
+    let hist_btn = nyx_ui::widgets::bar_button("document-open-recent-symbolic", "History (Ctrl+H)");
+    hist_btn.update_property(&[gtk::accessible::Property::Label("History")]);
     bar_end.append(&hist_btn);
     bar_end.append(&chrome::settings_button(settings_dialog::open));
 
-    calc_v_box.append(&topbar);
-
-    // Database
     let db = CalculatorDb::open_default().unwrap_or_else(|_| CalculatorDb::open_in_memory().unwrap());
 
-    // Calc View (Display + Keypad Stack)
-    let calc_view = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    calc_view.set_vexpand(true);
+    // The calculator: display, memory row and keypad
+    let calc_view = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    calc_view.add_css_class("calc-view");
 
     let display = DisplayView::new();
     calc_view.append(&display.root);
+
+    let mem = MemoryRow::new();
+    calc_view.append(&mem.root);
 
     let keypad_stack = gtk::Stack::new();
     keypad_stack.set_hhomogeneous(false);
     keypad_stack.set_vhomogeneous(false);
     keypad_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-
-    let standard_keypad = StandardKeypad::new(handle_action);
-    keypad_stack.add_named(&standard_keypad.root, Some("standard"));
-
-    let scientific_keypad = ScientificKeypad::new(handle_action);
-    keypad_stack.add_named(&scientific_keypad.root, Some("scientific"));
-
+    keypad_stack.add_named(&StandardKeypad::new(handle_action).root, Some("standard"));
+    keypad_stack.add_named(&ScientificKeypad::new(handle_action).root, Some("scientific"));
     let programmer_keypad = ProgrammerKeypad::new(handle_action);
     keypad_stack.add_named(&programmer_keypad.root, Some("programmer"));
-
     calc_view.append(&keypad_stack);
 
-    // Content Stack
-    let content_stack = gtk::Stack::new();
-    content_stack.set_hhomogeneous(false);
-    content_stack.set_vhomogeneous(false);
-    content_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    content_stack.set_vexpand(true);
-    content_stack.add_named(&calc_view, Some("calc"));
+    // Its size comes from the frame's size request, never from what it shows: the
+    // scroller asks for only the least its keys need.
+    let calc_scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .hexpand(true)
+        .vexpand(true)
+        .child(&calc_view)
+        .build();
 
-    let converter_view = ConverterView::new(toast);
-    content_stack.add_named(&converter_view.root, Some("converter"));
+    let sidebar = HistorySidebar::new(db.clone(), |formula| restore_calculation(&formula), toast);
+    let history_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    history_box.append(&nyx_ui::frame::pane_line(gtk::Orientation::Vertical));
+    history_box.append(&sidebar.borrow().root);
+    let history_open = prefs::get().history_open;
+    history_box.set_visible(history_open);
+    if history_open {
+        hist_btn.add_css_class("toggled");
+    }
 
-    let sheets_view = SheetsView::new(db.clone(), toast);
-    content_stack.add_named(&sheets_view.root, Some("sheets"));
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    content.append(&calc_scroller);
+    content.append(&history_box);
 
-    let graph_view = GraphView::new(toast);
-    content_stack.add_named(&graph_view.root, Some("graph"));
+    let frame = nyx_ui::frame::AppFrame::new(&topbar);
+    frame.set_flush(true);
+    frame.set_page(&content);
+    let overlay = frame.install(&window);
 
-    calc_v_box.append(&content_stack);
-    main_h_box.append(&calc_v_box);
-
-    // History sidebar
-    let sidebar = HistorySidebar::new(
-        db.clone(),
-        |formula| {
-            restore_calculation(&formula);
-        },
-        |msg| {
-            toast(msg);
-        },
-    );
-
-    let sidebar_container = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    sidebar_container.append(&sidebar.borrow().root);
-    let initial_open = prefs::get().history_open;
-    sidebar_container.set_visible(initial_open);
-    main_h_box.append(&sidebar_container);
-
-    overlay.set_child(Some(&main_h_box));
-
-    // Toast overlay label
     let toast_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     toast_box.add_css_class("calc-toast-box");
     toast_box.set_halign(gtk::Align::Center);
     toast_box.set_valign(gtk::Align::End);
     toast_box.set_visible(false);
-
     let toast_lbl = gtk::Label::new(None);
     toast_lbl.add_css_class("calc-toast");
     toast_box.append(&toast_lbl);
     overlay.add_overlay(&toast_box);
 
-    window.set_child(Some(&overlay));
-
-    // Common keys
     nyx_ui::keys::install(
         &window,
         nyx_ui::keys::Common {
@@ -317,8 +316,6 @@ fn build(app: &gtk::Application) {
             palette: None,
         },
     );
-
-    // Calculator typing keys
     install_calculator_keys(&window, handle_action, copy_result, paste_to_expression, toggle_history, switch_mode);
 
     hist_btn.connect_clicked(|_| toggle_history());
@@ -326,18 +323,16 @@ fn build(app: &gtk::Application) {
     let state = Rc::new(RefCell::new(Ui {
         window,
         overlay,
-        content_stack,
+        frame_root: frame.root.clone(),
         display,
         keypad_stack,
-        standard_keypad,
-        scientific_keypad,
         programmer_keypad,
-        converter_view,
-        sheets_view,
-        graph_view,
+        mem,
         sidebar,
-        sidebar_container,
+        history_box,
         mode_btn,
+        mode_label,
+        tool_btn,
         hist_btn,
         db,
         memory: MemoryRegister::new(),
@@ -354,125 +349,295 @@ fn build(app: &gtk::Application) {
 
     UI.with(|u| *u.borrow_mut() = Some(state));
 
-    let initial_mode = std::env::var("CALCULATOR_MODE").unwrap_or_else(|_| prefs::get().calculator_mode);
     apply_angle_preference();
-    if initial_mode != "standard" {
-        switch_mode(&initial_mode);
-    }
+    let start = std::env::var("CALCULATOR_MODE").unwrap_or_else(|_| prefs::get().calculator_mode);
+    let keypad = if KEYPADS.iter().any(|k| k.0 == start) { start } else { "standard".into() };
+    set_keypad(&keypad);
 }
 
-pub fn mode_dimensions(mode: &str) -> (i32, i32) {
-    match mode {
-        "scientific" => (500, 580),
-        "programmer" => (580, 660),
-        "converter" => (420, 450),
-        "sheets" => (680, 580),
-        "graph" => (780, 600),
-        _ => (360, 540),
-    }
+/// The memory row: what's stored (or that nothing is), MR and MC only when there's
+/// something to recall or clear, then M+, M− and MS. In Scientific the Deg/Rad
+/// switch leads it and "Memory is empty" moves beside M+.
+struct MemoryRow {
+    root: gtk::Box,
+    angle: gtk::Box,
+    deg: gtk::ToggleButton,
+    rad: gtk::ToggleButton,
+    tag: gtk::Box,
+    tag_value: gtk::Label,
+    empty: gtk::Label,
+    recall: gtk::Button,
+    clear: gtk::Button,
+    spacer: gtk::Box,
 }
 
-pub fn switch_mode(mode: &str) {
-    let Some(ui_rc) = ui() else { return };
-    let (final_w, base_h) = {
-        let mut ui = ui_rc.borrow_mut();
-        ui.mode = mode.to_string();
+impl MemoryRow {
+    fn new() -> Self {
+        let root = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        root.add_css_class("calc-mem");
 
-        let (label, title, stack_view, keypad_view) = match mode {
-            "scientific" => ("Scientific ▾", "Scientific", "calc", "scientific"),
-            "programmer" => ("Programmer ▾", "Programmer", "calc", "programmer"),
-            "converter" => ("Converter ▾", "Unit Converter", "converter", "standard"),
-            "sheets" => ("Sheets ▾", "Calculation Sheets", "sheets", "standard"),
-            "graph" => ("Graph ▾", "Graphing Calculator", "graph", "standard"),
-            _ => ("Standard ▾", "Standard", "calc", "standard"),
-        };
-
-        ui.content_stack.set_visible_child_name(stack_view);
-        // The programmer pad's DEC row is the value; no second big readout above it.
-        ui.display.readout_label.set_visible(mode != "programmer");
-        ui.keypad_stack.set_visible_child_name(keypad_view);
-        ui.mode_btn.set_label(label);
-        chrome::set_title(&ui.window, "Calculator", title);
-
-        let (base_w, base_h) = mode_dimensions(mode);
-        let is_hist_open = ui.sidebar_container.is_visible();
-        let final_w = if is_hist_open { base_w + 280 } else { base_w };
-        ui.window.set_default_size(final_w, base_h);
-
-        if mode == "programmer" {
-            // Sync programmer values
-            if let Ok(num) = get_current_number(&ui)
-                && let Some(u) = num.to_u64()
-            {
-                ui.programmer.set_value(u);
-            }
-            ui.programmer_keypad.update_state(&ui.programmer);
+        let angle = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        angle.add_css_class("segmented");
+        angle.add_css_class("calc-angle");
+        angle.set_valign(gtk::Align::Center);
+        angle.set_margin_end(8);
+        let deg = gtk::ToggleButton::with_label("Deg");
+        let rad = gtk::ToggleButton::with_label("Rad");
+        rad.set_group(Some(&deg));
+        for (b, mode, tip) in [(&deg, AngleMode::Degrees, "Angles in degrees"), (&rad, AngleMode::Radians, "Angles in radians")] {
+            b.add_css_class("segment");
+            b.set_focusable(false);
+            b.set_tooltip_text(Some(tip));
+            b.connect_toggled(move |b| {
+                // Not while the calculator itself is showing the unit it set.
+                let free = ui().is_some_and(|u| u.try_borrow_mut().is_ok());
+                if b.is_active() && free {
+                    handle_action(KeyAction::SetAngle(mode));
+                }
+            });
+            angle.append(b);
         }
+        root.append(&angle);
 
-        (final_w, base_h)
+        let tag = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        tag.add_css_class("calc-mem-tag");
+        tag.set_valign(gtk::Align::Center);
+        tag.append(&gtk::Label::new(Some("M")));
+        let tag_value = gtk::Label::new(None);
+        tag_value.add_css_class("calc-mem-value");
+        tag_value.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        tag.append(&tag_value);
+        root.append(&tag);
+
+        let empty = gtk::Label::new(Some("Memory is empty"));
+        empty.add_css_class("calc-mem-empty");
+        empty.set_xalign(0.0);
+        empty.set_margin_start(4);
+        root.append(&empty);
+
+        let button = |label: &str, tip: &str, action: KeyAction| {
+            let b = gtk::Button::with_label(label);
+            b.add_css_class("calc-mem-btn");
+            b.set_tooltip_text(Some(tip));
+            b.set_focusable(false);
+            b.connect_clicked(move |_| handle_action(action));
+            b
+        };
+        let recall = button("MR", "Recall memory (Ctrl+R)", KeyAction::MemRecall);
+        let clear = button("MC", "Clear memory (Ctrl+L)", KeyAction::MemClear);
+        root.append(&recall);
+        root.append(&clear);
+        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        root.append(&spacer);
+        root.append(&button("M+", "Add to memory", KeyAction::MemAdd));
+        root.append(&button("M−", "Subtract from memory", KeyAction::MemSub));
+        root.append(&button("MS", "Store in memory (Ctrl+M)", KeyAction::MemStore));
+
+        let row = Self { root, angle, deg, rad, tag, tag_value, empty, recall, clear, spacer };
+        row.set_value(None);
+        row
+    }
+
+    fn set_value(&self, value: Option<&str>) {
+        self.tag.set_visible(value.is_some());
+        self.tag_value.set_text(value.unwrap_or(""));
+        self.recall.set_visible(value.is_some());
+        self.clear.set_visible(value.is_some());
+        self.empty.set_visible(value.is_none());
+    }
+
+    fn set_angle_visible(&self, visible: bool) {
+        self.angle.set_visible(visible);
+        let after = if visible { &self.spacer } else { &self.tag };
+        self.root.reorder_child_after(&self.empty, Some(after));
+        self.empty.set_margin_end(if visible { 8 } else { 0 });
+    }
+
+    /// Shows `mode` in the switch without switching again.
+    fn show_angle(&self, mode: AngleMode) {
+        let b = if mode == AngleMode::Degrees { &self.deg } else { &self.rad };
+        if !b.is_active() {
+            b.set_active(true);
+        }
+    }
+}
+
+/// The mode menu: the keypads, which switch here, then the tools, which open apart.
+fn open_mode_menu(anchor: &gtk::Button) {
+    let current = ui().map(|u| u.borrow().mode.clone()).unwrap_or_default();
+    let popover = gtk::Popover::new();
+    popover.set_has_arrow(false);
+    popover.add_css_class("menu-popover");
+    popover.add_css_class("calc-mode-menu");
+    popover.set_position(gtk::PositionType::Bottom);
+    popover.set_halign(gtk::Align::Start);
+    popover.set_parent(anchor);
+    // A test copy never has the keyboard, so a grabbing popup would close at once.
+    if std::env::var_os("NYX_CALCULATOR_TEST_MENU").is_some() {
+        popover.set_autohide(false);
+    }
+
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 1);
+    list.add_css_class("menu-list");
+    list.set_size_request(236, -1);
+    let heading = |text: &str| {
+        let l = gtk::Label::new(Some(text));
+        l.set_xalign(0.0);
+        l.add_css_class("menu-heading");
+        l
+    };
+    let row = |icon: &str, label: &str, key: &str, checked: bool, mode: &'static str| {
+        let button = gtk::Button::new();
+        button.add_css_class("flat");
+        button.add_css_class("menu-item");
+        if checked {
+            button.add_css_class("checked");
+        }
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let image = gtk::Image::from_icon_name(if checked { "object-select-symbolic" } else { icon });
+        image.add_css_class("menu-icon");
+        content.append(&image);
+        let text = gtk::Label::new(Some(label));
+        text.set_xalign(0.0);
+        text.set_hexpand(true);
+        content.append(&text);
+        let k = gtk::Label::new(Some(key));
+        k.add_css_class("menu-key");
+        content.append(&k);
+        button.set_child(Some(&content));
+        let p = popover.clone();
+        button.connect_clicked(move |_| {
+            p.popdown();
+            switch_mode(mode);
+        });
+        button
     };
 
-    resize_window(final_w, base_h);
-    prefs::update(|p| p.calculator_mode = mode.to_string());
-}
-
-pub fn resize_window(w: i32, h: i32) {
-    if let Some(ui_rc) = ui()
-        && let Ok(ui) = ui_rc.try_borrow()
-    {
-        ui.window.set_default_size(w, h);
+    list.append(&heading("Keypad"));
+    for (mode, label, icon, key) in KEYPADS {
+        list.append(&row(icon, label, key, *mode == current, mode));
     }
-
-    if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
-        let pid = std::process::id();
-        std::thread::spawn(move || {
-            let addr = get_hypr_window_address(pid);
-            let fallback = format!("pid:{pid}");
-            let win_target = addr.as_deref().unwrap_or(&fallback);
-
-            let lua_resize = format!(r#"hl.dsp.window.resize({{ window = "{win_target}", x = {w}, y = {h} }})"#);
-            let _ = std::process::Command::new("hyprctl").args(["dispatch", &lua_resize]).output();
-        });
+    list.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    list.append(&heading("Opens beside the calculator"));
+    let open = tools::open_tool();
+    for tool in Tool::ALL {
+        list.append(&row(tool.icon(), tool.title(), tool.key(), open == Some(tool), tool.mode()));
     }
-}
+    popover.set_child(Some(&list));
 
-pub fn ensure_floating(w: i32, h: i32) {
-    if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
-        let pid = std::process::id();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(60));
-            let addr = get_hypr_window_address(pid);
-            let fallback = format!("pid:{pid}");
-            let win_target = addr.as_deref().unwrap_or(&fallback);
-
-            let lua_float = format!(r#"hl.dsp.window.float({{ window = "{win_target}", action = "on" }})"#);
-            let _ = std::process::Command::new("hyprctl").args(["dispatch", &lua_float]).output();
-
-            let lua_resize = format!(r#"hl.dsp.window.resize({{ window = "{win_target}", x = {w}, y = {h} }})"#);
-            let _ = std::process::Command::new("hyprctl").args(["dispatch", &lua_resize]).output();
-
-            let lua_center = format!(r#"hl.dsp.window.center({{ window = "{win_target}" }})"#);
-            let _ = std::process::Command::new("hyprctl").args(["dispatch", &lua_center]).output();
-        });
-    }
-}
-
-fn get_hypr_window_address(pid: u32) -> Option<String> {
-    let output = std::process::Command::new("hyprctl").args(["clients", "-j"]).output().ok()?;
-    let text = String::from_utf8(output.stdout).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let arr = json.as_array()?;
-
-    arr.iter().find_map(|c| {
-        let c_pid = c.get("pid").and_then(|p| p.as_u64())? as u32;
-        let c_class = c.get("class").and_then(|s| s.as_str()).unwrap_or("");
-        if c_pid == pid || c_class == "io.github.design_nexus.nyx.Calculator" {
-            let addr = c.get("address").and_then(|a| a.as_str())?;
-            Some(format!("address:{addr}"))
-        } else {
-            None
+    anchor.add_css_class("open");
+    let a = anchor.downgrade();
+    popover.connect_closed(move |pop| {
+        if let Some(a) = a.upgrade() {
+            a.remove_css_class("open");
         }
-    })
+        let pop = pop.clone();
+        glib::idle_add_local_once(move || {
+            if pop.parent().is_some() {
+                pop.unparent();
+            }
+        });
+    });
+    popover.popup();
+}
+
+/// Alt+1 to Alt+3 and the menu's keypads switch the calculator; the tools open beside it.
+pub fn switch_mode(mode: &str) {
+    if let Some(tool) = Tool::from_mode(mode) {
+        tools::open(tool);
+        return;
+    }
+    show();
+    set_keypad(mode);
+    prefs::update(|p| p.calculator_mode = mode.to_string());
+    tools::follow();
+}
+
+/// The window's size for its keypad, and History beside it if it's open.
+fn apply_size(ui: &Ui) {
+    let (w, h) = keypad_size(&ui.mode);
+    let extra = if ui.history_box.is_visible() { HISTORY_EXTRA } else { 0 };
+    let (w, h) = (w + extra, h);
+    if ui.frame_root.size_request() == (w, h) {
+        return;
+    }
+    keep_corner(w, h);
+    ui.frame_root.set_size_request(w, h);
+}
+
+/// Hyprland resizes a floating window about its middle, which would move the keys
+/// under the pointer (and can push the window off screen). Moved ahead by half the
+/// change, it ends with its top-left corner where it was, kept on screen.
+fn keep_corner(w: i32, h: i32) {
+    if !hypr::available() {
+        return;
+    }
+    let Some(calc) = hypr::client(&crate::app_id()) else { return };
+    let Some(mon) = hypr::monitor(calc.monitor) else { return };
+    let area = mon.work;
+    let x = calc.rect.x.min(area.right() - w).max(area.x);
+    let y = calc.rect.y.min(area.bottom() - h).max(area.y);
+    let (dw, dh) = (w - calc.rect.w, h - calc.rect.h);
+    hypr::move_to(&calc.address, x + dw / 2, y + dh / 2);
+}
+
+fn set_keypad(mode: &str) {
+    let Some(ui_rc) = ui() else { return };
+    let mut ui = ui_rc.borrow_mut();
+    let Some((mode, title, _, _)) = KEYPADS.iter().find(|k| k.0 == mode).or(KEYPADS.first()) else { return };
+    ui.mode = mode.to_string();
+    ui.keypad_stack.set_visible_child_name(mode);
+    apply_size(&ui);
+    // The programmer pad's rows are the value; above them, only the sum being typed.
+    let programmer = *mode == "programmer";
+    ui.display.readout_label.set_visible(!programmer);
+    ui.display.root.set_vexpand(!programmer);
+    ui.mem.root.set_visible(!programmer);
+    ui.mem.set_angle_visible(*mode == "scientific");
+    show_sum(&ui);
+    ui.mode_label.set_text(title);
+    ui.mode_btn.update_property(&[gtk::accessible::Property::Label(&format!("Keypad: {title}"))]);
+    chrome::set_title(&ui.window, "Calculator", title);
+
+    if *mode == "programmer" {
+        if let Ok(num) = get_current_number(&ui)
+            && let Some(u) = num.to_u64()
+        {
+            ui.programmer.set_value(u);
+        }
+        ui.programmer_keypad.update_state(&ui.programmer);
+    }
+}
+
+/// Floats and centres the calculator under Hyprland (its size is its own).
+/// NYX_CALCULATOR_TEST_AT=x,y puts a test copy there on its monitor instead.
+fn ensure_floating() {
+    if !hypr::available() {
+        return;
+    }
+    let class = crate::app_id();
+    std::thread::spawn(move || {
+        let mut calc = None;
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            calc = hypr::client(&class);
+            if calc.is_some() {
+                break;
+            }
+        }
+        let Some(calc) = calc else { return };
+        let addr = calc.address;
+        hypr::dispatch(&format!(r#"hl.dsp.window.float({{ window = "{addr}", action = "enable" }})"#));
+        let at = std::env::var("NYX_CALCULATOR_TEST_AT").ok().and_then(|s| {
+            let (x, y) = s.split_once(',')?;
+            Some((x.trim().parse::<i32>().ok()?, y.trim().parse::<i32>().ok()?))
+        });
+        match at.zip(hypr::monitor(calc.monitor)) {
+            Some(((x, y), mon)) => hypr::move_to(&addr, mon.rect.x + x, mon.rect.y + y),
+            None => hypr::dispatch(&format!(r#"hl.dsp.window.center({{ window = "{addr}" }})"#)),
+        }
+    });
 }
 
 pub fn handle_action(action: KeyAction) {
@@ -614,19 +779,12 @@ pub fn handle_action(action: KeyAction) {
             ui.input_buffer.push('τ');
             update_readout(&mut ui);
         }
-        KeyAction::ToggleAngleMode => {
-            ui.angle_mode = match ui.angle_mode {
-                AngleMode::Degrees => AngleMode::Radians,
-                AngleMode::Radians => AngleMode::Degrees,
-            };
-            prefs::update(|p| p.radians = ui.angle_mode == AngleMode::Radians);
-            ui.scientific_keypad.set_angle_mode(ui.angle_mode);
-            let mode_name = match ui.angle_mode {
-                AngleMode::Degrees => "Degrees (DEG)",
-                AngleMode::Radians => "Radians (RAD)",
-            };
-            toast(&format!("Angle mode: {mode_name}"));
-            update_readout(&mut ui);
+        KeyAction::SetAngle(mode) => {
+            if ui.angle_mode != mode {
+                ui.angle_mode = mode;
+                prefs::update(|p| p.radians = mode == AngleMode::Radians);
+                update_readout(&mut ui);
+            }
         }
         KeyAction::ExpNotation => {
             ui.input_buffer.push('e');
@@ -644,22 +802,13 @@ pub fn handle_action(action: KeyAction) {
             ui.programmer.active_radix = radix;
             ui.programmer_keypad.update_state(&ui.programmer);
         }
-        KeyAction::CycleWordWidth => {
-            let next_width = match ui.programmer.width {
-                WordWidth::Qword => WordWidth::Dword,
-                WordWidth::Dword => WordWidth::Word,
-                WordWidth::Word => WordWidth::Byte,
-                WordWidth::Byte => WordWidth::Qword,
-            };
-            ui.programmer.set_width(next_width);
+        KeyAction::SetWordWidth(width) => {
+            ui.programmer.set_width(width);
             ui.programmer_keypad.update_state(&ui.programmer);
             update_readout(&mut ui);
         }
-        KeyAction::ToggleSignedness => {
-            ui.programmer.signedness = match ui.programmer.signedness {
-                Signedness::Signed => Signedness::Unsigned,
-                Signedness::Unsigned => Signedness::Signed,
-            };
+        KeyAction::SetSignedness(signedness) => {
+            ui.programmer.signedness = signedness;
             ui.programmer_keypad.update_state(&ui.programmer);
         }
         KeyAction::Backspace => {
@@ -702,9 +851,7 @@ pub fn handle_action(action: KeyAction) {
         }
         KeyAction::MemClear => {
             ui.memory.clear();
-            ui.display.set_memory_active(false);
-            ui.standard_keypad.set_memory_enabled(false);
-            ui.scientific_keypad.set_memory_enabled(false);
+            show_memory(&ui);
             toast("Memory cleared");
         }
         KeyAction::MemRecall => {
@@ -721,33 +868,48 @@ pub fn handle_action(action: KeyAction) {
         KeyAction::MemStore => {
             if let Ok(val) = get_current_number(&ui) {
                 ui.memory.store(val);
-                ui.display.set_memory_active(true);
-                ui.standard_keypad.set_memory_enabled(true);
-                ui.scientific_keypad.set_memory_enabled(true);
-                toast(&format!("Memory set: {val}"));
+                show_memory(&ui);
             }
         }
         KeyAction::MemAdd => {
             if let Ok(val) = get_current_number(&ui)
                 && ui.memory.add(val).is_ok()
             {
-                ui.display.set_memory_active(true);
-                ui.standard_keypad.set_memory_enabled(true);
-                ui.scientific_keypad.set_memory_enabled(true);
-                toast(&format!("Memory: {}", ui.memory.recall()));
+                show_memory(&ui);
             }
         }
         KeyAction::MemSub => {
             if let Ok(val) = get_current_number(&ui)
                 && ui.memory.sub(val).is_ok()
             {
-                ui.display.set_memory_active(true);
-                ui.standard_keypad.set_memory_enabled(true);
-                ui.scientific_keypad.set_memory_enabled(true);
-                toast(&format!("Memory: {}", ui.memory.recall()));
+                show_memory(&ui);
             }
         }
     }
+    show_sum(&ui);
+}
+
+fn show_memory(ui: &Ui) {
+    let value = ui.memory.is_active().then(|| format_decimal(ui.memory.recall(), &get_format_options()));
+    ui.mem.set_value(value.as_deref());
+}
+
+/// The line over the readout: the last sum, or in Programmer (which has no readout)
+/// the sum being typed, its operators spelled as on the keys.
+fn show_sum(ui: &Ui) {
+    if ui.mode != "programmer" {
+        ui.display.set_tape(&ui.tape_text);
+        return;
+    }
+    let sum = if ui.is_result_shown || ui.input_buffer.is_empty() { &ui.tape_text } else { &ui.input_buffer };
+    let mut text = sum.clone();
+    for (op, name) in
+        [(" & ", " AND "), (" | ", " OR "), (" ^ ", " XOR "), (" << ", " LSH "), (" >> ", " RSH "), (" % ", " mod ")]
+    {
+        text = text.replace(op, name);
+    }
+    ui.display.set_tape(&text.replace("~(", "NOT ("));
+    ui.display.set_preview(None);
 }
 
 fn append_binary_op(ui: &mut Ui, op: &str) {
@@ -813,7 +975,7 @@ fn execute_calculation(ui: &mut Ui) {
             let raw_res = res.to_string();
             let expr = ui.input_buffer.clone();
 
-            ui.tape_text = format!("{expr} =");
+            ui.tape_text = expr.clone();
             ui.display.set_tape(&ui.tape_text);
             ui.display.set_readout(&formatted);
             ui.display.set_preview(None);
@@ -866,26 +1028,22 @@ pub fn restore_calculation(val: &str) {
     update_readout(&mut ui);
 }
 
+/// History slides out beside the keypad: the window grows by its width, the
+/// calculator itself stays as it is.
 pub fn toggle_history() {
     let Some(ui_rc) = ui() else { return };
-    let (new_vis, mode) = {
-        let ui = ui_rc.borrow();
-        let current_vis = ui.sidebar_container.is_visible();
-        let new_vis = !current_vis;
-        ui.sidebar_container.set_visible(new_vis);
-        if new_vis {
-            ui.hist_btn.add_css_class("toggled");
-        } else {
-            ui.hist_btn.remove_css_class("toggled");
-        }
-        (new_vis, ui.mode.clone())
-    };
-
-    let (base_w, base_h) = mode_dimensions(&mode);
-    let target_w = if new_vis { base_w + 280 } else { base_w };
-    resize_window(target_w, base_h);
-
-    prefs::update(|p| p.history_open = new_vis);
+    let ui = ui_rc.borrow();
+    let open = !ui.history_box.is_visible();
+    ui.history_box.set_visible(open);
+    apply_size(&ui);
+    if open {
+        ui.hist_btn.add_css_class("toggled");
+        ui.sidebar.borrow().refresh();
+    } else {
+        ui.hist_btn.remove_css_class("toggled");
+    }
+    prefs::update(|p| p.history_open = open);
+    tools::follow();
 }
 
 pub fn copy_result() {
@@ -922,7 +1080,7 @@ pub fn apply_angle_preference() {
     if let Some(state) = ui() {
         let mut ui = state.borrow_mut();
         ui.angle_mode = if prefs::get().radians { AngleMode::Radians } else { AngleMode::Degrees };
-        ui.scientific_keypad.set_angle_mode(ui.angle_mode);
+        ui.mem.show_angle(ui.angle_mode);
         update_readout(&mut ui);
     }
 }
@@ -931,6 +1089,7 @@ pub fn refresh_display() {
     let Some(ui_rc) = ui() else { return };
     let mut ui = ui_rc.borrow_mut();
     update_readout(&mut ui);
+    show_memory(&ui);
 }
 
 pub fn toast(msg: &str) {
@@ -969,25 +1128,24 @@ pub fn show_shortcuts() {
     list.add_css_class("group-list");
 
     let shortcuts: &[(&[&str], &str)] = &[
-        (&["Alt", "1"], "Standard mode"),
-        (&["Alt", "2"], "Scientific mode"),
-        (&["Alt", "3"], "Programmer mode"),
-        (&["Alt", "4"], "Unit Converter"),
-        (&["Alt", "5"], "Calculation Sheets"),
-        (&["Alt", "6"], "Graphing Calculator"),
+        (&["Alt", "1"], "Standard keypad"),
+        (&["Alt", "2"], "Scientific keypad"),
+        (&["Alt", "3"], "Programmer keypad"),
+        (&["Alt", "4"], "Unit converter, beside the calculator"),
+        (&["Alt", "5"], "Sheets, beside the calculator"),
+        (&["Alt", "6"], "Graph, beside the calculator"),
+        (&["Esc"], "Put the open tool away"),
         (&["0–9", "A–F", "."], "Enter numbers / hex digits"),
         (&["+", "−", "×", "÷"], "Basic arithmetic"),
         (&["&", "|", "~", "^"], "Bitwise AND, OR, NOT, XOR"),
         (&["Enter", "="], "Calculate result"),
         (&["Backspace"], "Delete character"),
-        (&["Esc", "C"], "Clear expression"),
-        (&["Ctrl", "H"], "Toggle history"),
+        (&["Esc", "C"], "Clear expression (Esc: when no tool is open)"),
+        (&["Ctrl", "H"], "Show or hide history"),
         (&["Ctrl", "C"], "Copy result"),
         (&["Ctrl", "V"], "Paste formula"),
         (&["Ctrl", "M"], "Memory store (MS)"),
         (&["Ctrl", "R"], "Memory recall (MR)"),
-        (&["Ctrl", "P"], "Memory add (M+)"),
-        (&["Ctrl", "Q"], "Memory subtract (M−)"),
         (&["Ctrl", "L"], "Memory clear (MC)"),
         (&["Ctrl", ","], "Open settings"),
         (&["F1"], "Show shortcuts"),
