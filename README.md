@@ -8,7 +8,7 @@ Nyx Calculator unites the clean elegance of macOS Calculator, the mathematical v
 
 ## Install
 
-On NyxOS, install Calculator from the Store. On Omarchy:
+On NyxOS, choose Calculator in Welcome when you set up, or install it later from the Store or with `nyx install nyx-calculator`. On Omarchy:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-calculator/main/install.sh | bash
