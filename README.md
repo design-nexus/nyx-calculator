@@ -1,12 +1,14 @@
 # Nyx Calculator
 
-A modern, fast, lightweight desktop calculator for Omarchy and the Nyx application suite.
+A fast, lightweight desktop calculator for NyxOS and Omarchy, part of the Nyx application suite.
 
 Nyx Calculator unites the clean elegance of macOS Calculator, the mathematical versatility of Windows Calculator, the natural-language scratchpad workflow of Numi, and the interactive graphical capabilities of Desmos into a single native Linux application.
 
 ---
 
 ## Install
+
+On NyxOS, install Calculator from the Store. On Omarchy:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-calculator/main/install.sh | bash
